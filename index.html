@@ -3900,7 +3900,13 @@ function buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPa
   // with "$xxx" placeholders (matching the raw template wording) instead of
   // blocking the whole preview behind an error.
   const isSummer = season === "summer";
-  const r3Raw = getFullUpfrontRate(target.building, rateRoom, season || "fall");
+  // The bare pair code ("3R", isPairDefault) quotes the WHOLE apartment —
+  // both bedrooms' rates summed (getGroupFullUpfrontRate) — not just the
+  // anchor room's own individual rate. An individual room query ("3RL"/
+  // "3RR") still uses just that one room's own rate.
+  const r3Raw = target.isPairDefault && target.unit && target.unit.groupId
+    ? getGroupFullUpfrontRate(target.building, target.unit.groupId, season || "fall")
+    : getFullUpfrontRate(target.building, rateRoom, season || "fall");
   const hasRate = !(!r3Raw || isNaN(r3Raw));
   const r3 = hasRate ? r3Raw : null;
   // Summer only has 2 tiers on the Rate Sheet (Monthly, Full Upfront) — no
