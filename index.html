@@ -585,7 +585,7 @@
 
         <div class="form-group">
           <label>Apartment</label>
-          <input type="text" id="quoteApartmentInput" placeholder="e.g. 205 or 2.05" oninput="onQuoteApartmentInput()">
+          <input type="text" id="quoteApartmentInput" placeholder="Boston: e.g. 205 or 2.05 — NY: e.g. 308E 1F" oninput="onQuoteApartmentInput()">
           <span class="date-parsed" id="quoteApartmentParsed"></span>
         </div>
 
@@ -3521,6 +3521,97 @@ function clearClientFilters() {
 // { [building]: { [unitCode]: { videoTour, infoPack } } } — add entries as
 // links are shared, e.g.:
 //   "922 Mass Ave": { "01": { videoTour: "https://...", infoPack: "https://..." } }
+// NY equivalent of UNIT_LINKS below — keyed by INDIVIDUAL ROOM (not a shared
+// unit code across floors, unlike Boston), since NY links vary room by room.
+// For private2br/3br/4br rooms, the video tour + info pack cover the WHOLE
+// shared apartment (one tour shows every bedroom in it), so the same link
+// is reused by every room in that pair/group — keyed by the group's anchor
+// room with the L/R suffix stripped (e.g. "2FL"+"2FR" both use key "2F").
+// Each room is still QUOTED and rented individually though (its own rate),
+// so this is purely a link-sharing shortcut, not a whole-apartment lease —
+// see getQuoteLinks' group-key fallback below.
+const NY_UNIT_LINKS = {
+  "308 East 52nd Street": {
+    "1F": { videoTour: "https://canva.link/6iqvpemidwviqum", infoPack: "https://canva.link/kh0df974hel523b" },
+    "1R": { videoTour: "https://drive.google.com/file/d/1GYbp8w8ohY_bVJwE6jgK58Ed9OGlQXgn/view?usp=drive_link", infoPack: "https://canva.link/58k3310rd7kxpj7" },
+    "2F": { videoTour: "https://canva.link/era1ima00d2vbvw", infoPack: "https://canva.link/stkwesjrk50qcq0" },
+    "2R": { videoTour: "https://youtu.be/osSsYcnCaHI", infoPack: "https://canva.link/sph8du1d3qx4xt7" },
+    "3F": { videoTour: "https://www.canva.com/design/DAG2qnMT-Fg/yDTFyKwXdZ--GAThQwi2zg/watch?utm_content=DAG2qnMT-Fg&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hd023855060", infoPack: "https://canva.link/9pmmllcsr2xj9hx" },
+    "3R": { videoTour: "https://youtu.be/Wxm6sjgtLdg", infoPack: "https://canva.link/6ixrd0tmbas249c" },
+    "4F": { videoTour: "https://youtu.be/Zu_gdZ6eAYA", infoPack: "https://canva.link/co2bqd6lsw7cl0j" },
+    "4R": { videoTour: "https://www.canva.com/design/DAG2qnhcLow/5__Mzbcc84mWS4f5rMOaDA/watch?utm_content=DAG2qnhcLow&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hde95809a25", infoPack: "https://canva.link/np1zmpvx0lwg3gn" },
+    "5F": { videoTour: "https://canva.link/vfutlc61scw1f5o", infoPack: "https://canva.link/cg74kv7f3h8s5fk" },
+    "5R": { videoTour: "https://canva.link/iypz23gc4i5l1vl", infoPack: "https://canva.link/175ffab7ivt2qk2" },
+    "6F": { videoTour: "https://canva.link/djhkbfvl9epxoq6", infoPack: "https://canva.link/uhy02iyt4wcyccj" },
+    "6R": { videoTour: "https://canva.link/5tr4xdxg6yv2te1", infoPack: "https://canva.link/z3r07bzxz0tltxu" },
+  },
+};
+
+// Per-building constant features that show up in the "Building & unit
+// features" section of the NY quote template. In-unit washer/dryer is NOT
+// here — it varies room by room and is read straight off UNITS' own
+// washerDryer field instead (see buildNyUnitQuoteResult).
+const NY_BUILDING_FEATURES = {
+  "308 East 52nd Street": { elevator: true },
+};
+
+// Neighborhood name used in the NY quote's title line ("{Neighborhood}
+// {Category} Apartment @ {building}") — add as more buildings get templates.
+const NY_BUILDING_NEIGHBORHOOD = {
+  "308 East 52nd Street": "Midtown East",
+};
+
+// Quote-title wording differs from CATEGORY_LABELS (which is for the Rate
+// Sheet's internal display) — e.g. "private2br" shows as "2-Bedroom" here,
+// not "Private Room / 2BR", even though the room is still rented/quoted
+// individually. Falls back to CATEGORY_LABELS for anything not listed.
+const NY_QUOTE_CATEGORY_LABELS = {
+  private2br: "2-Bedroom",
+  private3br: "3-Bedroom",
+  private4br: "4-Bedroom",
+};
+
+// When an individual bedroom is queried directly ("2FL"/"2FR"), the title
+// calls out that it's a private room within the shared apartment rather
+// than the generic "2-Bedroom Apartment" wording used for the bare pair
+// code ("2F") — see bedroomSide in buildNyUnitQuoteResult.
+const NY_QUOTE_PRIVATE_ROOM_LABELS = {
+  private2br: "Private room within a shared 2-Bedroom",
+  private3br: "Private room within a shared 3-Bedroom",
+  private4br: "Private room within a shared 4-Bedroom",
+};
+
+function getNyUnitLink(building, room, kind) {
+  const b = NY_UNIT_LINKS[building];
+  const r = b && b[room];
+  return (r && r[kind]) || "";
+}
+
+// Resolves the video tour / info pack links for whichever property the
+// currently-selected quote target belongs to — Boston looks them up by
+// shared unit code, NY by the individual room.
+function getQuoteLinks(target) {
+  if (!target) return { video: "", infoPack: "" };
+  if (target.isBoston) {
+    const key = getUnitCode(target);
+    return { video: getUnitLink(target.building, key, "videoTour"), infoPack: getUnitLink(target.building, key, "infoPack") };
+  }
+  const room = target.isGroup ? target.groupId.split("|")[1] : target.room;
+  let video = getNyUnitLink(target.building, room, "videoTour");
+  let infoPack = getNyUnitLink(target.building, room, "infoPack");
+  // Grouped rooms (private2br/3br/4br) may only have a link saved under the
+  // shared pair key (room with its L/R suffix stripped, e.g. "2FL" -> "2F")
+  // since one tour link covers every bedroom in that apartment.
+  const groupId = target.isGroup ? target.groupId : (target.unit && target.unit.groupId);
+  if ((!video || !infoPack) && groupId) {
+    const anchor = groupId.split("|")[1];
+    const pairKey = anchor.replace(/[LR]$/i, "");
+    if (!video) video = getNyUnitLink(target.building, pairKey, "videoTour");
+    if (!infoPack) infoPack = getNyUnitLink(target.building, pairKey, "infoPack");
+  }
+  return { video, infoPack };
+}
+
 const UNIT_LINKS = {
   "922 Mass Ave": {
     "01": { videoTour: "https://canva.link/ref0dteb8la9eai", infoPack: "https://canva.link/lx0m5hc4v32ri6r" },
@@ -3558,6 +3649,35 @@ function getUnitLink(building, unitCode, kind) {
 // private2br rooms. Falls back to a plain NY room-number match (first hit —
 // NY room codes can repeat across buildings, but no NY template exists yet
 // so this is just a basic lookup for when one's added later).
+// NY room numbers repeat across buildings (nearly every building has a
+// "1F"), so a bare room number is ambiguous for NY — this resolves a
+// building "shorthand" token to one of the 15 BUILDINGS entries. Accepts:
+// the house number alone ("308"), house number + direction letter ("308E",
+// "308W" — needed since 308 East 52nd St and 308 West 18th St share a house
+// number), or any distinctive substring of the street name ("Bleecker",
+// "Sullivan 230"). House number match is tried first since it's the most
+// common case; falls back to substring matching on the full building name.
+function findBuildingByShorthand(token) {
+  const norm = (token || "").trim().toUpperCase();
+  if (!norm) return null;
+  const m = norm.match(/^(\d+)\s*([A-Z]*)$/);
+  if (m) {
+    const num = m[1], hint = m[2];
+    const candidates = BUILDINGS.filter(b => b.trim().startsWith(num + " "));
+    if (candidates.length <= 1) return candidates[0] || null;
+    if (!hint) return candidates[0];
+    const byHint = candidates.find(b => {
+      const bUpper = b.toUpperCase();
+      if (hint === "E") return bUpper.includes("EAST");
+      if (hint === "W") return bUpper.includes("WEST");
+      return bUpper.replace(/[^A-Z]/g, "").includes(hint);
+    });
+    return byHint || candidates[0];
+  }
+  const compact = norm.replace(/[^A-Z0-9]/g, "");
+  return BUILDINGS.find(b => b.toUpperCase().replace(/[^A-Z0-9]/g, "").includes(compact)) || null;
+}
+
 function resolveQuoteApartment(query) {
   const q = (query || "").trim();
   if (!q) return null;
@@ -3576,12 +3696,43 @@ function resolveQuoteApartment(query) {
     return { isGroup: false, building: bUnit.building, room: bUnit.room, category: bUnit.category, unit: bUnit, isBoston: true };
   }
 
+  // NY, building-qualified: "308E 1F", "308 1F", "Bleecker 2FL" — last
+  // whitespace-separated token is the room, everything before it is the
+  // building shorthand. Preferred over the bare-room fallback below since
+  // it's unambiguous.
+  const lastSpace = q.lastIndexOf(" ");
+  if (lastSpace > -1) {
+    const roomPart = q.slice(lastSpace + 1).toUpperCase();
+    const buildingPart = q.slice(0, lastSpace);
+    const building = findBuildingByShorthand(buildingPart);
+    if (building) {
+      const nyUnitQualified = UNITS.find(u => u.building === building && u.room.toUpperCase() === roomPart);
+      // NY private2br/3br/4br rooms are still rented and quoted as their OWN
+      // individual private bedroom (unlike Boston's whole-apartment groups),
+      // so this deliberately does NOT convert to isGroup:true even when the
+      // room has a groupId — see getQuoteLinks for the separate shared-link
+      // fallback that groupId is still used for.
+      if (nyUnitQualified) {
+        return { isGroup: false, building, room: nyUnitQualified.room, category: nyUnitQualified.category, unit: nyUnitQualified, isBoston: false };
+      }
+      // Bare pair code with no L/R ("2F", "2R") — quoted generically as the
+      // "2 Bedroom" (no Left/Right Bedroom callout), using the anchor room's
+      // own rate. `room` stays "2F" (not renamed to the anchor's "2FL") so
+      // the Apt line and link lookup both use the pair code directly.
+      if (/^\d+[FR]$/.test(roomPart)) {
+        const anchor = UNITS.find(u => u.building === building && u.room.toUpperCase() === roomPart + "L");
+        if (anchor) {
+          return { isGroup: false, building, room: roomPart, category: anchor.category, unit: anchor, isPairDefault: true, isBoston: false };
+        }
+      }
+    }
+  }
+
+  // Bare NY room number, no building given — ambiguous across buildings, so
+  // this just grabs the first match. Kept for backwards compatibility; use
+  // the building-qualified format above ("308E 1F") to be unambiguous.
   const nyUnit = UNITS.find(u => u.room.toUpperCase() === qUpper);
   if (nyUnit) {
-    if (nyUnit.groupId) {
-      const g = getGroupsForBuilding(nyUnit.building).find(gr => gr.groupId === nyUnit.groupId);
-      if (g) return { isGroup: true, building: nyUnit.building, groupId: g.groupId, rooms: g.rooms, category: g.category, isBoston: false };
-    }
     return { isGroup: false, building: nyUnit.building, room: nyUnit.room, category: nyUnit.category, unit: nyUnit, isBoston: false };
   }
 
@@ -3615,9 +3766,7 @@ function onQuoteApartmentInput() {
   if (!target) {
     statusEl.innerHTML = "Type an apartment number to see its links.";
   } else {
-    const key = getUnitCode(target);
-    const video = getUnitLink(target.building, key, "videoTour");
-    const infoPack = getUnitLink(target.building, key, "infoPack");
+    const { video, infoPack } = getQuoteLinks(target);
     statusEl.innerHTML =
       `Video tour: <span class="${video ? "link-set" : "link-missing"}">${video ? "✓ set" : "not added yet"}</span><br>` +
       `Info pack: <span class="${infoPack ? "link-set" : "link-missing"}">${infoPack ? "✓ set" : "not added yet"}</span>`;
@@ -3676,7 +3825,97 @@ let quoteGeneratedText = "";
 // ("Apt 1.01", "Apt 1.08" etc.) but may need their own distinct wording
 // later since they have different amenities than the standard units this
 // template describes.
+// NY unit quote — single-room categories only for now (studio/1BR/junior1BR
+// variants); whole-apartment (private2br/3br/4br group) wording hasn't been
+// shared yet, so that still falls through to the "no template yet" state.
+// Floor label follows the wording Jonia gave for 308 East 52nd Street: floor
+// 1 = "Ground Floor", every other floor uses ordinary ordinals (2nd, 3rd...).
+// Rate is Fall Full Upfront (fullupfront_fall) as Option 3, mirroring the
+// same +$200/+$500 spread used for Boston's Option 2/Option 1 until told
+// otherwise.
+function buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink) {
+  if (target.isGroup) return null;
+  const room = target.room; // "2FL"/"2FR", or the bare pair code "2F" when isPairDefault
+  const rateRoom = target.unit ? target.unit.room : room; // always a real UNITS room code for the rate lookup
+  const digits = room.replace(/\D/g, "");
+  const floorNum = parseInt(digits[0] || "0", 10);
+  const floorLabel = floorNum === 1 ? "Ground" : ordinal(floorNum);
+  // Private2br/3br/4br INDIVIDUAL rooms (queried as "2FL"/"2FR") call out
+  // which bedroom it is right before the floor parenthetical. The bare pair
+  // code ("2F", isPairDefault) stays generic ("2 Bedroom", no Left/Right)
+  // per Jonia.
+  const bedroomSide = (!target.isPairDefault && target.unit && target.unit.groupId)
+    ? (room.endsWith("L") ? "Left Bedroom" : room.endsWith("R") ? "Right Bedroom" : null)
+    : null;
+  const aptLine = bedroomSide
+    ? `- Apt ${room} - ${bedroomSide} (Located on the ${floorLabel} Floor)`
+    : `- Apt ${room} (Located on the ${floorLabel} Floor)`;
+
+  // Fall rates for 2027 aren't finalized yet — show the full quote anyway
+  // with "$xxx" placeholders (matching the raw template wording) instead of
+  // blocking the whole preview behind an error.
+  const r3Raw = getFullUpfrontRate(target.building, rateRoom, "fall");
+  const hasRate = !(!r3Raw || isNaN(r3Raw));
+  const r3 = hasRate ? r3Raw : null;
+  const r2 = hasRate ? r3Raw + 200 : null, r1 = hasRate ? r3Raw + 500 : null;
+
+  const neighborhood = NY_BUILDING_NEIGHBORHOOD[target.building] || "";
+  const categoryLabel = bedroomSide
+    ? (NY_QUOTE_PRIVATE_ROOM_LABELS[target.category] || NY_QUOTE_CATEGORY_LABELS[target.category] || CATEGORY_LABELS[target.category] || target.category)
+    : (NY_QUOTE_CATEGORY_LABELS[target.category] || CATEGORY_LABELS[target.category] || target.category);
+  const title = `${neighborhood ? neighborhood + " " : ""}${categoryLabel} Apartment @ ${target.building}`;
+
+  const videoHtml = videoLink ? `<a href="${videoLink}" target="_blank" rel="noopener">HERE</a>` : "HERE (video link not added yet)";
+  const videoText = videoLink ? `HERE (${videoLink})` : "HERE (video link not added yet)";
+  const infoHtml = infoPackLink ? `<a href="${infoPackLink}" target="_blank" rel="noopener">HERE</a>` : "HERE (info pack link not added yet)";
+  const infoText = infoPackLink ? `HERE (${infoPackLink})` : "HERE (info pack link not added yet)";
+  const fmt = n => n === null ? "$xxx" : "$" + n.toLocaleString("en-US");
+
+  const features = NY_BUILDING_FEATURES[target.building] || {};
+  const featureLines = [];
+  if (features.elevator) featureLines.push("- This building has an elevator");
+  // washerDryer is either "Yes" (in-unit), "No", or already a descriptive
+  // shared-laundry string straight from UNITS (e.g. "Shared Washer & Dryer
+  // on 2nd Floor") — the latter gets Jonia's standard suffix appended.
+  const wd = target.unit && target.unit.washerDryer;
+  if (wd === "Yes") {
+    featureLines.push("- In-unit Washer Dryer");
+  } else if (wd && wd !== "No") {
+    featureLines.push(`- ${wd.replace("&", "and")} for max 4 occupants (each floor has its own shared Washer and Dryer)`);
+  }
+  featureLines.push("- Smart Lock system accessible through a compatible smartphone");
+
+  const body = (video, info) => `${title}
+${aptLine}
+- Available from ${moveInStr} to ${moveOutStr} (Extensions would be subject to availability & prevailing market rates)
+- You may view the pre-recorded apartment tour video ${video} & the information pack ${info}
+
+Building & unit features
+${featureLines.join("\n")}
+
+Included Services
+- Complimentary internet and once a month housekeeping service
+
+
+RENTAL RATES
+
+OPTION 1
+- ${fmt(r1)} per month inclusive of utilities
+- Payment will be made monthly and is subject to background check, credit check and/or 3rd party guarantor
+
+OPTION 2
+- ${fmt(r2)} per month inclusive of utilities
+- Payments will be split into 2 installments without a guarantor
+
+OPTION 3
+- ${fmt(r3)} per month inclusive of utilities
+- Discounted rate for paying the full rental upon the signing of the license agreement without a guarantor`;
+
+  return { html: body(videoHtml, infoHtml), text: body(videoText, infoText) };
+}
+
 function buildUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink) {
+  if (!target.isBoston) return buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink);
   const isWhole2br = target.isBoston && target.category === "private2br" && target.isGroup;
   const is1br = target.isBoston && target.category === "1br" && !target.isGroup;
   if (!isWhole2br && !is1br) return null;
@@ -3758,9 +3997,7 @@ function generateUnitQuote() {
   const moveOut = parseDate(document.getElementById("quoteMoveOut").value);
   const moveInStr = moveIn ? formatDisplay(moveIn) : (document.getElementById("quoteMoveIn").value.trim() || "___");
   const moveOutStr = moveOut ? formatDisplay(moveOut) : (document.getElementById("quoteMoveOut").value.trim() || "___");
-  const linkKey = getUnitCode(target);
-  const videoLink = getUnitLink(target.building, linkKey, "videoTour");
-  const infoPackLink = getUnitLink(target.building, linkKey, "infoPack");
+  const { video: videoLink, infoPack: infoPackLink } = getQuoteLinks(target);
 
   const result = buildUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink);
   if (!result) {
