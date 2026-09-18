@@ -3657,13 +3657,13 @@ function getUnitLink(building, unitCode, kind) {
 // number), or any distinctive substring of the street name ("Bleecker",
 // "Sullivan 230"). House number match is tried first since it's the most
 // common case; falls back to substring matching on the full building name.
-function findBuildingByShorthand(token) {
+function findBuildingByShorthandIn(buildingsList, token) {
   const norm = (token || "").trim().toUpperCase();
   if (!norm) return null;
   const m = norm.match(/^(\d+)\s*([A-Z]*)$/);
   if (m) {
     const num = m[1], hint = m[2];
-    const candidates = BUILDINGS.filter(b => b.trim().startsWith(num + " "));
+    const candidates = buildingsList.filter(b => b.trim().startsWith(num + " "));
     if (candidates.length <= 1) return candidates[0] || null;
     if (!hint) return candidates[0];
     const byHint = candidates.find(b => {
@@ -3675,7 +3675,15 @@ function findBuildingByShorthand(token) {
     return byHint || candidates[0];
   }
   const compact = norm.replace(/[^A-Z0-9]/g, "");
-  return BUILDINGS.find(b => b.toUpperCase().replace(/[^A-Z0-9]/g, "").includes(compact)) || null;
+  return buildingsList.find(b => b.toUpperCase().replace(/[^A-Z0-9]/g, "").includes(compact)) || null;
+}
+
+function findBuildingByShorthand(token) {
+  return findBuildingByShorthandIn(BUILDINGS, token);
+}
+
+function findBostonBuildingByShorthand(token) {
+  return findBuildingByShorthandIn(BOSTON_BUILDINGS, token);
 }
 
 function resolveQuoteApartment(query) {
@@ -3685,6 +3693,29 @@ function resolveQuoteApartment(query) {
 
   const aptCodeMatch = q.match(/^(\d)\.(\d{1,2})$/);
   const roomKey = aptCodeMatch ? (aptCodeMatch[1] + aptCodeMatch[2].padStart(2, "0")) : qUpper;
+
+  // Boston, building-qualified: "922 104", "922 2.05" — same idea as NY's
+  // building-qualified format below. Boston only has one building today, so
+  // this is mainly for consistency with the NY lookup style, but scopes
+  // correctly if more Boston buildings are added later.
+  const bLastSpace = q.lastIndexOf(" ");
+  if (bLastSpace > -1) {
+    const bBuilding = findBostonBuildingByShorthand(q.slice(0, bLastSpace));
+    if (bBuilding) {
+      const bRoomRaw = q.slice(bLastSpace + 1);
+      const bAptCodeMatch = bRoomRaw.match(/^(\d)\.(\d{1,2})$/);
+      const bRoomKey = (bAptCodeMatch ? (bAptCodeMatch[1] + bAptCodeMatch[2].padStart(2, "0")) : bRoomRaw).toUpperCase();
+      let bUnitQualified = BOSTON_UNITS.find(u => u.building === bBuilding && u.room.toUpperCase() === bRoomKey);
+      if (!bUnitQualified) bUnitQualified = BOSTON_UNITS.find(u => u.building === bBuilding && u.groupId && u.room.replace(/[LR]$/i, "").toUpperCase() === bRoomKey);
+      if (bUnitQualified) {
+        if (bUnitQualified.groupId) {
+          const g = getBostonGroupsForBuilding(bBuilding).find(gr => gr.groupId === bUnitQualified.groupId);
+          if (g) return { isGroup: true, building: bBuilding, groupId: g.groupId, rooms: g.rooms, category: g.category, isBoston: true };
+        }
+        return { isGroup: false, building: bBuilding, room: bUnitQualified.room, category: bUnitQualified.category, unit: bUnitQualified, isBoston: true };
+      }
+    }
+  }
 
   let bUnit = BOSTON_UNITS.find(u => u.room.toUpperCase() === roomKey);
   if (!bUnit) bUnit = BOSTON_UNITS.find(u => u.groupId && u.room.replace(/[LR]$/i, "").toUpperCase() === roomKey);
@@ -3801,6 +3832,20 @@ function onQuotePickerChange(id) {
   if (dt) { document.getElementById(id).value = formatDisplay(dt); onQuoteDateInput(id); }
 }
 
+// Auto-detects Summer vs Fall for an NY quote from the dates entered. Per
+// Jonia: Summer moves OUT in August (standard cutoff Aug 31) and moves IN
+// around June 1, sometimes up to about a week earlier (so late May counts
+// too). Fall leases run on a completely different calendar (Sept-onward
+// move-in), so anything outside those specific months defaults to Fall.
+function detectNySeason(moveInDate, moveOutDate) {
+  if (moveOutDate && moveOutDate.getMonth() === 7) return "summer"; // August
+  if (moveInDate) {
+    const m = moveInDate.getMonth(); // 4 = May, 5 = June
+    if (m === 4 || m === 5) return "summer";
+  }
+  return "fall";
+}
+
 function ordinal(n) {
   const s = ["th","st","nd","rd"], v = n % 100;
   return n + (s[(v-20)%10] || s[v] || s[0]);
@@ -3833,7 +3878,7 @@ let quoteGeneratedText = "";
 // Rate is Fall Full Upfront (fullupfront_fall) as Option 3, mirroring the
 // same +$200/+$500 spread used for Boston's Option 2/Option 1 until told
 // otherwise.
-function buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink) {
+function buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink, season) {
   if (target.isGroup) return null;
   const room = target.room; // "2FL"/"2FR", or the bare pair code "2F" when isPairDefault
   const rateRoom = target.unit ? target.unit.room : room; // always a real UNITS room code for the rate lookup
@@ -3854,10 +3899,14 @@ function buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPa
   // Fall rates for 2027 aren't finalized yet — show the full quote anyway
   // with "$xxx" placeholders (matching the raw template wording) instead of
   // blocking the whole preview behind an error.
-  const r3Raw = getFullUpfrontRate(target.building, rateRoom, "fall");
+  const isSummer = season === "summer";
+  const r3Raw = getFullUpfrontRate(target.building, rateRoom, season || "fall");
   const hasRate = !(!r3Raw || isNaN(r3Raw));
   const r3 = hasRate ? r3Raw : null;
-  const r2 = hasRate ? r3Raw + 200 : null, r1 = hasRate ? r3Raw + 500 : null;
+  // Summer only has 2 tiers on the Rate Sheet (Monthly, Full Upfront) — no
+  // 2-installments middle option like Fall has.
+  const r2 = (hasRate && !isSummer) ? r3Raw + 200 : null;
+  const r1 = hasRate ? r3Raw + 500 : null;
 
   const neighborhood = NY_BUILDING_NEIGHBORHOOD[target.building] || "";
   const categoryLabel = bedroomSide
@@ -3885,6 +3934,26 @@ function buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPa
   }
   featureLines.push("- Smart Lock system accessible through a compatible smartphone");
 
+  const optionsBlock = isSummer
+    ? `OPTION 1
+- ${fmt(r1)} per month inclusive of utilities
+- Payment will be made monthly and is subject to background check, credit check and/or 3rd party guarantor
+
+OPTION 2
+- ${fmt(r3)} per month inclusive of utilities
+- Discounted rate for paying the full rental upon the signing of the license agreement without a guarantor`
+    : `OPTION 1
+- ${fmt(r1)} per month inclusive of utilities
+- Payment will be made monthly and is subject to background check, credit check and/or 3rd party guarantor
+
+OPTION 2
+- ${fmt(r2)} per month inclusive of utilities
+- Payments will be split into 2 installments without a guarantor
+
+OPTION 3
+- ${fmt(r3)} per month inclusive of utilities
+- Discounted rate for paying the full rental upon the signing of the license agreement without a guarantor`;
+
   const body = (video, info) => `${title}
 ${aptLine}
 - Available from ${moveInStr} to ${moveOutStr} (Extensions would be subject to availability & prevailing market rates)
@@ -3899,23 +3968,13 @@ Included Services
 
 RENTAL RATES
 
-OPTION 1
-- ${fmt(r1)} per month inclusive of utilities
-- Payment will be made monthly and is subject to background check, credit check and/or 3rd party guarantor
-
-OPTION 2
-- ${fmt(r2)} per month inclusive of utilities
-- Payments will be split into 2 installments without a guarantor
-
-OPTION 3
-- ${fmt(r3)} per month inclusive of utilities
-- Discounted rate for paying the full rental upon the signing of the license agreement without a guarantor`;
+${optionsBlock}`;
 
   return { html: body(videoHtml, infoHtml), text: body(videoText, infoText) };
 }
 
-function buildUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink) {
-  if (!target.isBoston) return buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink);
+function buildUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink, season) {
+  if (!target.isBoston) return buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink, season);
   const isWhole2br = target.isBoston && target.category === "private2br" && target.isGroup;
   const is1br = target.isBoston && target.category === "1br" && !target.isGroup;
   if (!isWhole2br && !is1br) return null;
@@ -3998,8 +4057,9 @@ function generateUnitQuote() {
   const moveInStr = moveIn ? formatDisplay(moveIn) : (document.getElementById("quoteMoveIn").value.trim() || "___");
   const moveOutStr = moveOut ? formatDisplay(moveOut) : (document.getElementById("quoteMoveOut").value.trim() || "___");
   const { video: videoLink, infoPack: infoPackLink } = getQuoteLinks(target);
+  const season = detectNySeason(moveIn, moveOut);
 
-  const result = buildUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink);
+  const result = buildUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink, season);
   if (!result) {
     area.innerHTML = `<div class="empty-state"><div class="empty-icon">✏️</div><p>No quote template yet for this unit type.<br>Share the wording for this building/category and it'll be added.</p></div>`;
     meta.textContent = "No template available for this selection yet";
@@ -4014,7 +4074,7 @@ function generateUnitQuote() {
   }
 
   area.innerHTML = `<div class="output-text">${result.html}</div>`;
-  meta.textContent = "Quote generated — review before copying";
+  meta.textContent = target.isBoston ? "Quote generated — review before copying" : `Quote generated (${season === "summer" ? "Summer" : "Fall"} rate) — review before copying`;
   btn.disabled = false;
   quoteGeneratedHtml = result.html;
   quoteGeneratedText = result.text;
