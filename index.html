@@ -3600,6 +3600,21 @@ const NY_UNIT_LINKS = {
     "5F": { videoTour: "https://canva.link/pw0wa9yylzy40ar", infoPack: "https://canva.link/k68rolky0ar7gm5" },
     "5R": { videoTour: "https://canva.link/obhlvjmdxzxe3a1", infoPack: "https://canva.link/xhnjeqq9hyqcoqh" },
   },
+  "308 West 18th Street": {
+    "1A": { videoTour: "https://www.canva.com/design/DAG2qnBcyRE/ZltsMxm5by_8abMJCQ7ySw/watch?utm_content=DAG2qnBcyRE&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h979d8bbd77", infoPack: "https://canva.link/epxnpgienzigxiu" },
+    "1F": { videoTour: "https://canva.link/lna3ebzg6s4h5qm", infoPack: "https://canva.link/fz2bqg71v34c6ak" },
+    "1R": { videoTour: "https://www.canva.com/design/DAG2qmpzM6A/uX0fpzgPmUlkF_f0XQOsEQ/watch?utm_content=DAG2qmpzM6A&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h11310ac46e", infoPack: "https://canva.link/c4pvecceew45hzu" },
+    "1M": { videoTour: "https://canva.link/v112e9vx6u9pueu", infoPack: "https://canva.link/pt6wme5y4nvskim" },
+    "2F": { videoTour: "https://www.canva.com/design/DAG2qh3gINM/OVT4nAsSrC4INwxKzH2mVw/watch?utm_content=DAG2qh3gINM&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h63bfc92bee", infoPack: "https://canva.link/qemg9v93e4pdga0" },
+    "2R": { videoTour: "https://www.canva.com/design/DAG2qmVs7kY/jr4-eCyFvEG7ETutAf5lgQ/watch?utm_content=DAG2qmVs7kY&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h6803d39167", infoPack: "https://canva.link/qxd89m5tw12rvd9" },
+    "2M": { videoTour: "https://www.canva.com/design/DAG2qnmQSZA/dX4jn4pc6I2F3x_5KNr-SA/watch?utm_content=DAG2qnmQSZA&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h92ee4b980f", infoPack: "https://canva.link/1vy1khuhp1u5gfw" },
+    "3F": { videoTour: "https://www.canva.com/design/DAG2qnVrjQc/Cl439iF3-yE7LKEaGiRoDA/watch?utm_content=DAG2qnVrjQc&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h21804f3318", infoPack: "https://canva.link/7f4jtur3eae2orb" },
+    "3R": { videoTour: "https://www.canva.com/design/DAG2qmVs7kY/jr4-eCyFvEG7ETutAf5lgQ/watch?utm_content=DAG2qmVs7kY&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h6803d39167", infoPack: "https://canva.link/qxd89m5tw12rvd9" },
+    "3M": { videoTour: "https://www.canva.com/design/DAG2qnmQSZA/dX4jn4pc6I2F3x_5KNr-SA/watch?utm_content=DAG2qnmQSZA&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h92ee4b980f", infoPack: "https://canva.link/1vy1khuhp1u5gfw" },
+    "4F": { videoTour: "https://www.canva.com/design/DAG2qqn7LSo/Fnw4DQ88q5PeC3DooD379w/watch?utm_content=DAG2qqn7LSo&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h9e90a69f26", infoPack: "https://canva.link/7f4jtur3eae2orb" },
+    "4R": { videoTour: "https://www.canva.com/design/DAG2qmVs7kY/jr4-eCyFvEG7ETutAf5lgQ/watch?utm_content=DAG2qmVs7kY&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h6803d39167", infoPack: "https://canva.link/qxd89m5tw12rvd9" },
+    "4M": { videoTour: "https://www.canva.com/design/DAG2qnmQSZA/dX4jn4pc6I2F3x_5KNr-SA/watch?utm_content=DAG2qnmQSZA&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h92ee4b980f", infoPack: "https://canva.link/1vy1khuhp1u5gfw" },
+  },
 };
 
 // Per-building constant features that show up in the "Building & unit
@@ -3612,6 +3627,7 @@ const NY_BUILDING_FEATURES = {
   "115 East 37th Street": { elevator: false }, // walk-up, no elevator
   "138 East 37th Street": { elevator: false }, // walk-up, no elevator
   "143 East 36th Street": { elevator: false }, // walk-up, no elevator
+  "308 West 18th Street": { elevator: false }, // walk-up, no elevator
 };
 
 // Neighborhood name used in the NY quote's title line ("{Neighborhood}
@@ -3622,6 +3638,7 @@ const NY_BUILDING_NEIGHBORHOOD = {
   "115 East 37th Street": "Grand Central",
   "138 East 37th Street": "Grand Central",
   "143 East 36th Street": "Grand Central",
+  "308 West 18th Street": "Chelsea",
 };
 
 // Quote-title wording differs from CATEGORY_LABELS (which is for the Rate
@@ -3817,7 +3834,7 @@ function resolveQuoteApartment(query) {
       // (some buildings anchor on the "R" room, not "L"), so this checks
       // both rather than assuming — either member's groupId resolves the
       // same whole-apartment group either way.
-      if (/^\d+[FR]$/.test(roomPart)) {
+      if (/^\d+[A-Z]$/.test(roomPart)) {
         const member = UNITS.find(u => u.building === building && u.groupId &&
           (u.room.toUpperCase() === roomPart + "L" || u.room.toUpperCase() === roomPart + "R"));
         if (member) {
