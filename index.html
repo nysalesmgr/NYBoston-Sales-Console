@@ -161,7 +161,12 @@
 
   /* ── Rate Sheet: client request filter (budget / room type / same COO) ── */
   .client-filter-panel { border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fafafa; padding: 0.85rem 1rem; margin-bottom: 1rem; }
-  .client-filter-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; }
+  .client-filter-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; }
+  .client-filter-label:hover { color: var(--text-primary); }
+  .client-filter-chevron { font-size: 10px; transition: transform 0.15s ease; }
+  .client-filter-panel.collapsed .client-filter-label { margin-bottom: 0; }
+  .client-filter-panel.collapsed .client-filter-chevron { transform: rotate(-90deg); }
+  .client-filter-panel.collapsed .client-filter-body { display: none; }
   .client-filter-panel .form-row { margin-bottom: 10px; }
   .client-filter-panel .form-row:last-of-type { margin-bottom: 0; }
 
@@ -347,48 +352,53 @@
             <input type="text" id="rateTableFilter" placeholder="e.g. Bleecker, or 230 1R" oninput="filterRateTable()">
           </div>
           <div class="form-group" id="rateSheetBuildingWrap">
-            <label for="rateSheetBuilding">Jump to building (optional)</label>
+            <label for="rateSheetBuilding">Jump to building</label>
             <select id="rateSheetBuilding" onchange="filterRateTable()">
               <option value="">— All Buildings —</option>
             </select>
           </div>
         </div>
 
-        <div class="client-filter-panel" id="clientFilterPanel">
-          <div class="client-filter-label">Client preference filter — only shows currently available units</div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="filterBudget">Max budget (Full Upfront, $/mo)</label>
-              <input type="number" id="filterBudget" min="0" placeholder="e.g. 2500" oninput="filterRateTable()">
-            </div>
-            <div class="form-group">
-              <label for="filterRoomType">Preferred room type</label>
-              <select id="filterRoomType" onchange="filterRateTable()">
-                <option value="">— Any —</option>
-                <option value="studio_1br" id="roomTypeOptStudio1br">Studio, 1 Bedroom</option>
-                <option value="private_room" id="roomTypeOptPrivate">Private room</option>
-                <option value="whole_2_3_4br" id="roomTypeOptWhole">2/3/4 Bedroom</option>
-              </select>
-            </div>
-            <div class="form-group" id="filterSameCooWrap">
-              <label for="filterSameCoo">Same COO required?</label>
-              <select id="filterSameCoo" onchange="filterRateTable()">
-                <option value="no">No</option>
-                <option value="yes">Yes</option>
-              </select>
-            </div>
+        <div class="client-filter-panel collapsed" id="clientFilterPanel">
+          <div class="client-filter-label" id="clientFilterToggle" onclick="toggleClientFilterPanel()">
+            <span>Client preference filter — only shows currently available units</span>
+            <span class="client-filter-chevron" id="clientFilterChevron">▸</span>
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="filterGender">Preferred gender (private rooms)</label>
-              <select id="filterGender" onchange="filterRateTable()">
-                <option value="">— Any —</option>
-                <option value="M">Male</option>
-                <option value="F">Female</option>
-              </select>
+          <div class="client-filter-body" id="clientFilterBody">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="filterBudget">Max budget (Full Upfront, $/mo)</label>
+                <input type="number" id="filterBudget" min="0" placeholder="e.g. 2500" oninput="filterRateTable()">
+              </div>
+              <div class="form-group">
+                <label for="filterRoomType">Preferred room type</label>
+                <select id="filterRoomType" onchange="filterRateTable()">
+                  <option value="">— Any —</option>
+                  <option value="studio_1br" id="roomTypeOptStudio1br">Studio, 1 Bedroom</option>
+                  <option value="private_room" id="roomTypeOptPrivate">Private room</option>
+                  <option value="whole_2_3_4br" id="roomTypeOptWhole">2/3/4 Bedroom</option>
+                </select>
+              </div>
+              <div class="form-group" id="filterSameCooWrap">
+                <label for="filterSameCoo">Same COO required?</label>
+                <select id="filterSameCoo" onchange="filterRateTable()">
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                </select>
+              </div>
             </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="filterGender">Preferred gender (private rooms)</label>
+                <select id="filterGender" onchange="filterRateTable()">
+                  <option value="">— Any —</option>
+                  <option value="M">Male</option>
+                  <option value="F">Female</option>
+                </select>
+              </div>
+            </div>
+            <button type="button" class="btn-copy" id="clearClientFilterBtn" onclick="clearClientFilters()">✕ Clear filters</button>
           </div>
-          <button type="button" class="btn-copy" id="clearClientFilterBtn" onclick="clearClientFilters()">✕ Clear filters</button>
         </div>
 
         <div class="rate-cards-toolbar">
@@ -3526,6 +3536,30 @@ function clearClientFilters() {
   filterRateTable();
 }
 
+function toggleClientFilterPanel() {
+  const panel = document.getElementById("clientFilterPanel");
+  const collapsed = panel.classList.toggle("collapsed");
+  document.getElementById("clientFilterChevron").textContent = collapsed ? "▸" : "▾";
+  try { localStorage.setItem("hc_client_filter_collapsed_v1", collapsed ? "1" : "0"); } catch (e) {}
+}
+
+function loadClientFilterPanelState() {
+  let collapsed = true;
+  try {
+    const saved = localStorage.getItem("hc_client_filter_collapsed_v1");
+    collapsed = saved === null ? true : saved === "1";
+  } catch (e) {}
+  const panel = document.getElementById("clientFilterPanel");
+  const chevron = document.getElementById("clientFilterChevron");
+  if (collapsed) {
+    panel.classList.add("collapsed");
+    chevron.textContent = "▸";
+  } else {
+    panel.classList.remove("collapsed");
+    chevron.textContent = "▾";
+  }
+}
+
 // ── INIT ────────────────────────────────────────────────────────
 // ── UNIT QUOTE (Recap-style but plain, client-ready quote text with a real
 // clickable video-tour link) — a fully separate tab/state from the Recap
@@ -4288,6 +4322,7 @@ function populateBuildingDropdowns() {
 
 window.addEventListener("DOMContentLoaded", function() {
   populateBuildingDropdowns();
+  loadClientFilterPanelState();
   loadRateSheet();
   updateSellingRateDisplay();
   updateBaseRateDisplay();
