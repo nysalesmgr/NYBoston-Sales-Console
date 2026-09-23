@@ -55,8 +55,8 @@
 
   .date-wrap { position: relative; display: flex; align-items: center; }
   .date-wrap input[type="text"] { flex: 1; padding-right: 36px; }
-  .date-wrap input[type="date"] { position: absolute; right: 0; top: 0; width: 34px; height: 100%; opacity: 0; cursor: pointer; z-index: 2; }
-  .date-wrap::after { content: "📅"; position: absolute; right: 8px; font-size: 15px; pointer-events: none; z-index: 1; }
+  .date-wrap input[type="date"] { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .date-pick-icon { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 15px; cursor: pointer; z-index: 2; background: none; border: none; padding: 4px; line-height: 1; }
   .date-parsed { font-size: 11px; color: #7aab96; margin-top: 3px; display: block; min-height: 16px; font-weight: 500; }
 
   .divider { border: none; border-top: 1px solid var(--border); margin: 1.25rem 0; }
@@ -449,7 +449,8 @@
             <label>Move-in date</label>
             <div class="date-wrap">
               <input type="text" id="moveIn" placeholder="e.g. 24 Aug 2026" oninput="onDateInput('moveIn')" onpaste="onDatePaste(event,'moveIn')">
-              <input type="date" id="moveInPicker" onchange="onPickerChange('moveIn')">
+              <input type="date" id="moveInPicker" onchange="onPickerChange('moveIn')" tabindex="-1">
+              <button type="button" class="date-pick-icon" aria-label="Open date picker" onclick="openDatePicker('moveIn')">📅</button>
             </div>
             <span class="date-parsed" id="moveInParsed"></span>
           </div>
@@ -457,7 +458,8 @@
             <label>Move-out date</label>
             <div class="date-wrap">
               <input type="text" id="moveOut" placeholder="e.g. 31 May 2027" oninput="onDateInput('moveOut')" onpaste="onDatePaste(event,'moveOut')">
-              <input type="date" id="moveOutPicker" onchange="onPickerChange('moveOut')">
+              <input type="date" id="moveOutPicker" onchange="onPickerChange('moveOut')" tabindex="-1">
+              <button type="button" class="date-pick-icon" aria-label="Open date picker" onclick="openDatePicker('moveOut')">📅</button>
             </div>
             <span class="date-parsed" id="moveOutParsed"></span>
           </div>
@@ -594,7 +596,8 @@
             <label>Available from</label>
             <div class="date-wrap">
               <input type="text" id="quoteMoveIn" placeholder="e.g. 24 Aug 2026" oninput="onQuoteDateInput('quoteMoveIn')" onpaste="onQuoteDatePaste(event,'quoteMoveIn')">
-              <input type="date" id="quoteMoveInPicker" onchange="onQuotePickerChange('quoteMoveIn')">
+              <input type="date" id="quoteMoveInPicker" onchange="onQuotePickerChange('quoteMoveIn')" tabindex="-1">
+              <button type="button" class="date-pick-icon" aria-label="Open date picker" onclick="openDatePicker('quoteMoveIn')">📅</button>
             </div>
             <span class="date-parsed" id="quoteMoveInParsed"></span>
           </div>
@@ -602,7 +605,8 @@
             <label>Available to</label>
             <div class="date-wrap">
               <input type="text" id="quoteMoveOut" placeholder="e.g. 31 May 2027" oninput="onQuoteDateInput('quoteMoveOut')" onpaste="onQuoteDatePaste(event,'quoteMoveOut')">
-              <input type="date" id="quoteMoveOutPicker" onchange="onQuotePickerChange('quoteMoveOut')">
+              <input type="date" id="quoteMoveOutPicker" onchange="onQuotePickerChange('quoteMoveOut')" tabindex="-1">
+              <button type="button" class="date-pick-icon" aria-label="Open date picker" onclick="openDatePicker('quoteMoveOut')">📅</button>
             </div>
             <span class="date-parsed" id="quoteMoveOutParsed"></span>
           </div>
@@ -3582,6 +3586,20 @@ const NY_UNIT_LINKS = {
     "5F": { videoTour: "https://www.canva.com/design/DAG2q1PAs_s/LhHz22nszHQZnoxNbdSz8Q/watch?utm_content=DAG2q1PAs_s&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h58c052cce1", infoPack: "https://canva.link/6gn8x37nvi6egiw" },
     "5R": { videoTour: "https://www.canva.com/design/DAG2q1pA8qc/y2igXpwf1pzrmg7GxX3_rA/watch?utm_content=DAG2q1pA8qc&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h63e689dc41", infoPack: "https://canva.link/6jivjtb16wgsuvu" },
   },
+  "143 East 36th Street": {
+    "1F": { videoTour: "https://canva.link/616pv73ilnwf0ns", infoPack: "https://canva.link/daw3dtmx5puvbfb" },
+    "1R": { videoTour: "https://canva.link/0by39yotk28beoj", infoPack: "https://canva.link/x21qyhnmzaqlj52" },
+    "2F": { videoTour: "https://canva.link/q30boic0p31huuv", infoPack: "https://canva.link/d4di5j52v7v5tx6" },
+    "2R": { videoTour: "https://youtu.be/qYSGBmbT510", infoPack: "https://canva.link/y2cw6kjtlomi60c" },
+    // Whole 3-bedroom apartment (3FL/3RL/3RR) — reachable as either "3F" or
+    // "3R" since it's one shared apartment, not two separate L/R pairs.
+    "3F": { videoTour: "https://canva.link/x3jh6pitidpsc46", infoPack: "https://canva.link/vgocms3dfvzuj75" },
+    "3R": { videoTour: "https://canva.link/x3jh6pitidpsc46", infoPack: "https://canva.link/vgocms3dfvzuj75" },
+    "4F": { videoTour: "https://canva.link/3w6s9pa9ic7awz1", infoPack: "https://canva.link/z7i073eklvgs3l0" },
+    "4R": { videoTour: "https://www.canva.com/design/DAG2qq5oufg/rz_ykzSxTxe5LOeXAMt5Fg/watch?utm_content=DAG2qq5oufg&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hce5c4f1512", infoPack: "https://canva.link/g9b77l2hhuo1dk2" },
+    "5F": { videoTour: "https://canva.link/pw0wa9yylzy40ar", infoPack: "https://canva.link/k68rolky0ar7gm5" },
+    "5R": { videoTour: "https://canva.link/obhlvjmdxzxe3a1", infoPack: "https://canva.link/xhnjeqq9hyqcoqh" },
+  },
 };
 
 // Per-building constant features that show up in the "Building & unit
@@ -3593,6 +3611,7 @@ const NY_BUILDING_FEATURES = {
   "111 East 39th Street": { elevator: false }, // walk-up, no elevator
   "115 East 37th Street": { elevator: false }, // walk-up, no elevator
   "138 East 37th Street": { elevator: false }, // walk-up, no elevator
+  "143 East 36th Street": { elevator: false }, // walk-up, no elevator
 };
 
 // Neighborhood name used in the NY quote's title line ("{Neighborhood}
@@ -3602,6 +3621,7 @@ const NY_BUILDING_NEIGHBORHOOD = {
   "111 East 39th Street": "Grand Central",
   "115 East 37th Street": "Grand Central",
   "138 East 37th Street": "Grand Central",
+  "143 East 36th Street": "Grand Central",
 };
 
 // Quote-title wording differs from CATEGORY_LABELS (which is for the Rate
@@ -3892,6 +3912,23 @@ function detectNySeason(moveInDate, moveOutDate) {
     if (m === 4 || m === 5) return "summer";
   }
   return "fall";
+}
+
+// The invisible <input type="date"> overlay trick (clicking a transparent
+// native date input on top of the text field) is unreliable across
+// browsers — it depends on the browser correctly sizing/positioning a
+// 0-opacity input's clickable hit area, which doesn't always work. This
+// instead uses a real, always-clickable calendar icon button that opens the
+// native picker directly via showPicker() (Chrome/Edge), falling back to
+// focus+click for browsers without showPicker support.
+function openDatePicker(baseId) {
+  const picker = document.getElementById(baseId + "Picker");
+  if (!picker) return;
+  if (typeof picker.showPicker === "function") {
+    try { picker.showPicker(); return; } catch (e) {}
+  }
+  picker.focus();
+  picker.click();
 }
 
 function ordinal(n) {
