@@ -169,6 +169,8 @@
   .rate-cards-toolbar { display: flex; gap: 10px; margin-bottom: 1rem; }
   .rate-cards-wrap { display: flex; flex-direction: column; gap: 10px; margin-bottom: 1.5rem; }
   .rate-card { border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fff; overflow: hidden; }
+  .rate-area-header { position: sticky; top: 100px; z-index: 9; background: #f4f6fb; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 14px; margin: 1.25rem 0 0.5rem; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #303c6c; }
+  .rate-area-header:first-child { margin-top: 0; }
   .rate-card-header { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 12px 16px; background: #f5f5f5; border: none; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 600; color: var(--text); }
   .rate-card-header:hover { background: #eee; }
   .rate-card-chevron { display: inline-block; transition: transform 0.15s; font-size: 11px; color: var(--text-secondary); }
@@ -1953,11 +1955,28 @@ function collapseAllRateCards() {
 // every .rs-editable input across every card, expanded or not, since all
 // cards render their inputs into the DOM at load time (only hidden via CSS
 // when collapsed, never removed).
+// Renders the 15 NY rate cards grouped under sticky area-section headers
+// (see NY_BUILDING_AREA_GROUPS) instead of one flat list, so it's clear
+// which neighborhood you're scrolled into. Any building not assigned to an
+// area (shouldn't normally happen) is appended ungrouped at the end.
+function buildRateSheetSectionsHtml() {
+  const groupedBuildings = new Set();
+  let html = "";
+  Object.keys(NY_BUILDING_AREA_GROUPS).forEach(area => {
+    const buildingsInArea = NY_BUILDING_AREA_GROUPS[area].filter(b => BUILDINGS.includes(b));
+    if (!buildingsInArea.length) return;
+    html += `<div class="rate-area-header">${area}</div>`;
+    buildingsInArea.forEach(b => { html += buildRateCardHtml(b); groupedBuildings.add(b); });
+  });
+  html += BUILDINGS.filter(b => !groupedBuildings.has(b)).map(buildRateCardHtml).join("");
+  return html;
+}
+
 function renderRateSheetTable() {
   if (currentProperty === "boston") { renderBostonRateSheetTable(); return; }
   const wrap = document.getElementById("rateCardsWrap");
 
-  wrap.innerHTML = BUILDINGS.map(buildRateCardHtml).join("");
+  wrap.innerHTML = buildRateSheetSectionsHtml();
 
   // populate saved per-room values from the in-memory store. Whole Apartment
   // (Full Upfront) is no longer a stored/manually-entered per-group value —
@@ -3632,6 +3651,18 @@ const NY_BUILDING_FEATURES = {
 
 // Neighborhood name used in the NY quote's title line ("{Neighborhood}
 // {Category} Apartment @ {building}") — add as more buildings get templates.
+// Broad area grouping for the Rate Sheet building filter dropdown — purely
+// for internal staff navigation (organizing the 15-building list), distinct
+// from NY_BUILDING_NEIGHBORHOOD below (the customer-facing neighborhood
+// name used in Apartment Details quote titles, which is more granular —
+// e.g. "Midtown East" and "Grand Central" are both "Midtown" here).
+const NY_BUILDING_AREA_GROUPS = {
+  "Midtown": ["308 East 52nd Street", "111 East 39th Street", "115 East 37th Street", "138 East 37th Street", "143 East 36th Street"],
+  "Chelsea": ["308 West 18th Street", "152 West 15th Street"],
+  "Union Square": ["336 East 15th Street", "35 East 7th Street", "85 2nd Avenue"],
+  "Soho": ["133 West 3rd Street", "176 Bleecker Street", "230 Sullivan Street", "235 Sullivan Street", "81 Sullivan Street"],
+};
+
 const NY_BUILDING_NEIGHBORHOOD = {
   "308 East 52nd Street": "Midtown East",
   "111 East 39th Street": "Grand Central",
@@ -4221,9 +4252,23 @@ function copyQuoteText() {
 function populateBuildingDropdowns() {
   const rsSelect = document.getElementById("rateSheetBuilding");
   const recapSelect = document.getElementById("recapBuilding");
-  BUILDINGS.forEach(b => {
-    const opt1 = document.createElement("option"); opt1.value=b; opt1.textContent=b; rsSelect.appendChild(opt1);
+  const rsGrouped = new Set();
+  Object.keys(NY_BUILDING_AREA_GROUPS).forEach(area => {
+    const buildingsInArea = NY_BUILDING_AREA_GROUPS[area].filter(b => BUILDINGS.includes(b));
+    if (!buildingsInArea.length) return;
+    const areaGroup = document.createElement("optgroup"); areaGroup.label = area;
+    buildingsInArea.forEach(b => {
+      const opt1 = document.createElement("option"); opt1.value=b; opt1.textContent=b; areaGroup.appendChild(opt1);
+      rsGrouped.add(b);
+    });
+    rsSelect.appendChild(areaGroup);
   });
+  const rsUngrouped = BUILDINGS.filter(b => !rsGrouped.has(b));
+  if (rsUngrouped.length) {
+    rsUngrouped.forEach(b => {
+      const opt1 = document.createElement("option"); opt1.value=b; opt1.textContent=b; rsSelect.appendChild(opt1);
+    });
+  }
 
   const nyGroup = document.createElement("optgroup"); nyGroup.label = "New York";
   BUILDINGS.forEach(b => {
