@@ -7,6 +7,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>NYBoston Sales Console — Heritage Collection</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3.5' fill='%23303c6c'/%3E%3Ctext x='8' y='10.8' text-anchor='middle' fill='%23e8527a' font-size='6.4' font-weight='700' font-family='Arial, sans-serif' letter-spacing='0.1'%3ENYB%3C/text%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #303c6c;
@@ -160,13 +161,16 @@
   @media (max-width: 640px) { .internal-grid { grid-template-columns: 1fr; } }
 
   /* ── Rate Sheet: client request filter (budget / room type / same COO) ── */
-  .client-filter-panel { border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fafafa; padding: 0.85rem 1rem; margin-bottom: 1rem; }
-  .client-filter-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; }
+  #rateSheetSearchRow { max-width: 50%; }
+  .client-filter-panel { border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fafafa; padding: 0.85rem 1rem; margin-bottom: 1rem; max-width: 50%; }
+  .client-filter-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; user-select: none; }
   .client-filter-label:hover { color: var(--text-primary); }
   .client-filter-chevron { font-size: 10px; transition: transform 0.15s ease; }
-  .client-filter-panel.collapsed .client-filter-label { margin-bottom: 0; }
+  .client-filter-panel.collapsed { padding: 8px 12px; border-radius: 20px; }
+  .client-filter-panel.collapsed .client-filter-label { margin-bottom: 0; white-space: nowrap; }
   .client-filter-panel.collapsed .client-filter-chevron { transform: rotate(-90deg); }
   .client-filter-panel.collapsed .client-filter-body { display: none; }
+  .client-filter-panel .form-row { grid-template-columns: 1fr 1fr; }
   .client-filter-panel .form-row { margin-bottom: 10px; }
   .client-filter-panel .form-row:last-of-type { margin-bottom: 0; }
 
@@ -346,7 +350,7 @@
           <button type="button" class="property-toggle-btn" id="propBtnBoston" onclick="switchProperty('boston')">Boston</button>
         </div>
 
-        <div class="form-row">
+        <div class="form-row" id="rateSheetSearchRow">
           <div class="form-group">
             <label for="rateTableFilter" id="rateTableFilterLabel">Search (building name, or "building unit" e.g. 230 1R)</label>
             <input type="text" id="rateTableFilter" placeholder="e.g. Bleecker, or 230 1R" oninput="filterRateTable()">
