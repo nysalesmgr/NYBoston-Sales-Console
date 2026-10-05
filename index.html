@@ -2860,7 +2860,7 @@ function pickOption(n) {
   const isSummerNow = document.getElementById("obtn2").style.display === "none";
   const labels={1:"Option 1 — Monthly debit",2:"Option 2 — 2 instalments",3: isSummerNow ? "Option 2 — Full upfront" : "Option 3 — Full upfront"};
   document.getElementById("outputMeta").innerHTML=`<strong>${labels[n]}</strong> selected`;
-  const rendered=escHtml(outputs[n]).replace(/(OPTION \d ✔ \(selected\))/g,"<strong>$1</strong>");
+  const rendered=boldRecapHeadings(escHtml(outputs[n]));
   document.getElementById("outputArea").innerHTML=`<div class="output-text">${rendered}</div>`;
   document.getElementById("copyBtn").className="btn-copy";
   document.getElementById("copyBtn").innerHTML="⎘ Copy text";
@@ -2868,12 +2868,22 @@ function pickOption(n) {
 
 function escHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
+// Bolds the section heading lines of a recap (RENTAL RATES..., OPTION n...,
+// OPTION n — Pricing breakdown). Applied to the on-screen html and to the
+// text/html flavor of the clipboard; the plain-text flavor stays unmarked.
+function boldRecapHeadings(escapedText) {
+  return escapedText.replace(/^(RENTAL RATES[^\n]*|OPTION \d[^\n]*)$/gm, "<strong>$1</strong>");
+}
+
 function copyText() {
   if (!selectedOption||!generated) return;
   const text=outputs[selectedOption];
   const btn=document.getElementById("copyBtn");
   const ok=()=>{ btn.className="btn-copy copied"; btn.innerHTML="✓ Copied!"; setTimeout(()=>{ btn.className="btn-copy"; btn.innerHTML="⎘ Copy text"; },2000); };
-  if (navigator.clipboard&&window.isSecureContext) navigator.clipboard.writeText(text).then(ok).catch(()=>fallbackCopy(text,ok));
+  if (navigator.clipboard&&window.isSecureContext&&window.ClipboardItem) {
+    const html=boldRecapHeadings(escHtml(text)).replace(/\n/g,"<br>");
+    navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([html],{type:"text/html"}), "text/plain": new Blob([text],{type:"text/plain"}) })]).then(ok).catch(()=>fallbackCopy(text,ok));
+  } else if (navigator.clipboard&&window.isSecureContext) navigator.clipboard.writeText(text).then(ok).catch(()=>fallbackCopy(text,ok));
   else fallbackCopy(text,ok);
 }
 
@@ -4218,43 +4228,44 @@ function buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPa
   }
   featureLines.push("- Smart Lock system accessible through a compatible smartphone");
 
-  const optionsBlock = isSummer
-    ? `OPTION 1
+  const optionsBlock = B => isSummer
+    ? `${B("OPTION 1")}
 - ${fmt(r1)} per month inclusive of utilities
 - Payment will be made monthly and is subject to background check, credit check and/or 3rd party guarantor
 
-OPTION 2
+${B("OPTION 2")}
 - ${fmt(r3)} per month inclusive of utilities
 - Discounted rate for paying the full rental upon the signing of the license agreement without a guarantor`
-    : `OPTION 1
+    : `${B("OPTION 1")}
 - ${fmt(r1)} per month inclusive of utilities
 - Payment will be made monthly and is subject to background check, credit check and/or 3rd party guarantor
 
-OPTION 2
+${B("OPTION 2")}
 - ${fmt(r2)} per month inclusive of utilities
 - Payments will be split into 2 installments without a guarantor
 
-OPTION 3
+${B("OPTION 3")}
 - ${fmt(r3)} per month inclusive of utilities
 - Discounted rate for paying the full rental upon the signing of the license agreement without a guarantor`;
 
-  const body = (video, info) => `${title}
+  // Headings are bold in the html flavor only (plain-text flavor has no markup).
+  const body = (video, info, bold) => { const B = bold ? (t => `<strong>${t}</strong>`) : (t => t); return `${B(title)}
 ${aptLine}
 - Available from ${moveInStr} to ${moveOutStr} (Extensions would be subject to availability & prevailing market rates)
 - You may view the pre-recorded apartment tour video ${video} & the information pack ${info}
 
-Building & unit features
+${B("Building & unit features")}
 ${featureLines.join("\n")}
 
-Included Services
+${B("Included Services")}
 - Complimentary internet and once a month housekeeping service
 
 
-RENTAL RATES
+${B("RENTAL RATES")}
 
-${optionsBlock}`;
+${optionsBlock(B)}`; };
 
-  return { html: body(videoHtml, infoHtml), text: body(videoText, infoText) };
+  return { html: body(videoHtml, infoHtml, true), text: body(videoText, infoText, false) };
 }
 
 function buildUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink, season) {
@@ -4285,38 +4296,38 @@ function buildUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPack
   const infoText = infoPackLink ? `HERE (${infoPackLink})` : "HERE (info pack link not added yet)";
   const fmt = n => "$" + n.toLocaleString("en-US");
 
-  const body = (video, info) => `${title} @ ${target.building}
+  const body = (video, info, bold) => { const B = bold ? (t => `<strong>${t}</strong>`) : (t => t); return `${B(title + " @ " + target.building)}
 - Apt ${aptNumber} (Located on the ${floorLabel} Floor)
 - Available from ${moveInStr} to ${moveOutStr} (Extensions would be subject to availability & prevailing market rates)
 - You may view the pre-recorded apartment tour video ${video} & the information pack ${info}
 - Please note that this building is located with nearby bar, which may result in street noise and nightlife music.
 
-Building & unit features
+${B("Building & unit features")}
 - This building has an elevator
 - In unit washer and dryer
 - Dishwasher
 - ${microwaveLine}
 - Smart Lock system accessible through a compatible smartphone
 
-Included Services
+${B("Included Services")}
 - Complimentary internet and once a month housekeeping service
 
 
-RENTAL RATES
+${B("RENTAL RATES")}
 
-OPTION 1
+${B("OPTION 1")}
 - ${fmt(r1)} per month inclusive of utilities
 - Payment will be made monthly and is subject to background check, credit check and/or 3rd party guarantor
 
-OPTION 2
+${B("OPTION 2")}
 - ${fmt(r2)} per month inclusive of utilities
 - Payments will be split into 2 installments without a guarantor
 
-OPTION 3
+${B("OPTION 3")}
 - ${fmt(r3)} per month inclusive of utilities
-- Discounted rate for paying the full rental upon the signing of the license agreement without a guarantor`;
+- Discounted rate for paying the full rental upon the signing of the license agreement without a guarantor`; };
 
-  return { html: body(videoHtml, infoHtml), text: body(videoText, infoText) };
+  return { html: body(videoHtml, infoHtml, true), text: body(videoText, infoText, false) };
 }
 
 function generateUnitQuote() {
