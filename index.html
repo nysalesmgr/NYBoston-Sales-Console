@@ -3821,6 +3821,18 @@ const NY_UNIT_LINKS = {
     "5F": { videoTour: "https://www.canva.com/design/DAGTUnwjPyA/C21G8SOD_gHmO7iHmGUBRQ/watch?utm_content=DAGTUnwjPyA&utm_campaign=designshare&utm_medium=link&utm_source=editor", infoPack: "https://canva.link/se6nfj2jcfoqm6a" },
     "5R": { videoTour: "https://www.canva.com/design/DAGTUr1AdAE/GdOk54_VXm09oKMbu7U1ww/watch?utm_content=DAGTUr1AdAE&utm_campaign=designshare&utm_medium=link&utm_source=editor", infoPack: "https://canva.link/1pg3nhiozws12qb" },
   },
+  "81 Sullivan Street": {
+    "1A": { videoTour: "https://www.canva.com/design/DAGs9nu9fko/mUpm_mQiTxX_xUkrnitliw/watch?utm_content=DAGs9nu9fko&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h5dec54b2b8", infoPack: "https://canva.link/csoirbo546mvduf" },
+    "2F": { videoTour: "https://canva.link/vhfe180lgfyx99w", infoPack: "https://canva.link/q6t6z5yx7uhkqlg" },
+    "2R": { videoTour: "https://canva.link/31w1gghba754v4f", infoPack: "https://canva.link/ejltqd7cruyv0m6" },
+    "3F": { videoTour: "https://canva.link/nwsfmjkpsnagdpj", infoPack: "https://canva.link/50mma677j5n27wg" },
+    "3R": { videoTour: "https://canva.link/dgqrkiksxhcj8t9", infoPack: "https://canva.link/xi22gcbyrgxqgi5" },
+    "4F": { videoTour: "https://canva.link/kr8b4blmb3rn7fm", infoPack: "https://canva.link/50mma677j5n27wg" },
+    "4R": { videoTour: "https://canva.link/i7zai4mwmtnu9jx", infoPack: "https://canva.link/0physqjwuxsgaxd" },
+    "R1": { videoTour: "https://www.canva.com/design/DAGtikv3LqY/niOsCKRgBOL156LxUkTaVQ/watch?utm_content=DAGtikv3LqY&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hc3abee65e8", infoPack: "https://canva.link/juup2r2bel6lj6b" },
+    "R2": { videoTour: "https://www.canva.com/design/DAGti3P73WM/WJC6ZmZWFnedECqXsDkVfw/watch?utm_content=DAGti3P73WM&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h32f80abbb3", infoPack: "https://canva.link/ugn5gprdg4by8h5" },
+    "R3": { videoTour: "https://www.canva.com/design/DAGtjfd441I/a6SB3BzHClKANp58o91QzQ/watch?utm_content=DAGtjfd441I&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h4007c10047", infoPack: "https://canva.link/ahhyyigtdqk2nrh" },
+  },
 };
 
 // Per-building constant features that show up in the "Building & unit
@@ -3842,6 +3854,7 @@ const NY_BUILDING_FEATURES = {
   "176 Bleecker Street": { elevator: false }, // walk-up, no elevator
   "230 Sullivan Street": { elevator: false }, // walk-up, no elevator
   "235 Sullivan Street": { elevator: false }, // walk-up, no elevator
+  "81 Sullivan Street": { elevator: false }, // walk-up, no elevator
 };
 
 // Neighborhood name used in the NY quote's title line ("{Neighborhood}
@@ -3873,6 +3886,7 @@ const NY_BUILDING_NEIGHBORHOOD = {
   "176 Bleecker Street": "Soho",
   "230 Sullivan Street": "Soho",
   "235 Sullivan Street": "Soho",
+  "81 Sullivan Street": "Soho",
 };
 
 // Quote-title wording differs from CATEGORY_LABELS (which is for the Rate
@@ -3919,7 +3933,7 @@ function getQuoteLinks(target) {
   const groupId = target.isGroup ? target.groupId : (target.unit && target.unit.groupId);
   if ((!video || !infoPack) && groupId) {
     const anchor = groupId.split("|")[1];
-    const pairKey = anchor.replace(/[LR]$/i, "");
+    const pairKey = anchor.replace(/[LR]$/i, "").trim();
     if (!video) video = getNyUnitLink(target.building, pairKey, "videoTour");
     if (!infoPack) infoPack = getNyUnitLink(target.building, pairKey, "infoPack");
   }
@@ -4045,35 +4059,38 @@ function resolveQuoteApartment(query) {
   // whitespace-separated token is the room, everything before it is the
   // building shorthand. Preferred over the bare-room fallback below since
   // it's unambiguous.
-  const lastSpace = q.lastIndexOf(" ");
-  if (lastSpace > -1) {
-    const roomPart = q.slice(lastSpace + 1).toUpperCase();
-    const buildingPart = q.slice(0, lastSpace);
+  // Tries the split at the LAST space first ("308E 1F"), then at the FIRST
+  // space ("81 R1 L" — a few rooms are stored with a space in their code), and
+  // compares rooms with spaces removed so "R1L" and "R1 L" are the same room.
+  const noSp = x => String(x).replace(/\s+/g, "").toUpperCase();
+  const splitPoints = [q.lastIndexOf(" "), q.indexOf(" ")].filter((v, i, a) => v > -1 && a.indexOf(v) === i);
+  for (const sp of splitPoints) {
+    const roomPart = noSp(q.slice(sp + 1));
+    const buildingPart = q.slice(0, sp);
     const building = findBuildingByShorthand(buildingPart);
-    if (building) {
-      const nyUnitQualified = UNITS.find(u => u.building === building && u.room.toUpperCase() === roomPart);
-      // NY private2br/3br/4br rooms are still rented and quoted as their OWN
-      // individual private bedroom (unlike Boston's whole-apartment groups),
-      // so this deliberately does NOT convert to isGroup:true even when the
-      // room has a groupId — see getQuoteLinks for the separate shared-link
-      // fallback that groupId is still used for.
-      if (nyUnitQualified) {
-        return { isGroup: false, building, room: nyUnitQualified.room, category: nyUnitQualified.category, unit: nyUnitQualified, isBoston: false };
-      }
-      // Bare pair code with no L/R ("2F", "2R") — quoted generically as the
-      // "2 Bedroom" (no Left/Right Bedroom callout), using the group's
-      // whole-apartment rate. `room` stays "2F" (not renamed to a specific
-      // "2FL"/"2FR") so the Apt line and link lookup both use the pair code
-      // directly. The anchor room's actual L/R letter varies by building
-      // (some buildings anchor on the "R" room, not "L"), so this checks
-      // both rather than assuming — either member's groupId resolves the
-      // same whole-apartment group either way.
-      if (/^\d+[A-Z]$/.test(roomPart)) {
-        const member = UNITS.find(u => u.building === building && u.groupId &&
-          (u.room.toUpperCase() === roomPart + "L" || u.room.toUpperCase() === roomPart + "R"));
-        if (member) {
-          return { isGroup: false, building, room: roomPart, category: member.category, unit: member, isPairDefault: true, isBoston: false };
-        }
+    if (!building) continue;
+    const nyUnitQualified = UNITS.find(u => u.building === building && noSp(u.room) === roomPart);
+    // NY private2br/3br/4br rooms are still rented and quoted as their OWN
+    // individual private bedroom (unlike Boston's whole-apartment groups),
+    // so this deliberately does NOT convert to isGroup:true even when the
+    // room has a groupId — see getQuoteLinks for the separate shared-link
+    // fallback that groupId is still used for.
+    if (nyUnitQualified) {
+      return { isGroup: false, building, room: nyUnitQualified.room, category: nyUnitQualified.category, unit: nyUnitQualified, isBoston: false };
+    }
+    // Bare pair/apartment code with no L/R ("2F", "2R", "R1") — quoted
+    // generically as the whole apartment ("2 Bedroom", no Left/Right Bedroom
+    // callout), using the group's whole-apartment rate. `room` stays "2F" (not
+    // renamed to a specific "2FL"/"2FR") so the Apt line and link lookup both
+    // use the pair code directly. The anchor room's actual L/R letter varies
+    // by building (some anchor on the "R" room), so this checks both rather
+    // than assuming — any member's groupId resolves the same whole-apartment
+    // group either way.
+    if (/^[A-Z0-9]{2,3}$/.test(roomPart)) {
+      const member = UNITS.find(u => u.building === building && u.groupId &&
+        (noSp(u.room) === roomPart + "L" || noSp(u.room) === roomPart + "R"));
+      if (member) {
+        return { isGroup: false, building, room: roomPart, category: member.category, unit: member, isPairDefault: true, isBoston: false };
       }
     }
   }
@@ -4216,7 +4233,7 @@ let quoteGeneratedText = "";
 // otherwise.
 function buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink, season) {
   if (target.isGroup) return null;
-  const room = target.room; // "2FL"/"2FR", or the bare pair code "2F" when isPairDefault
+  const room = target.room.replace(/\s+/g, ""); // "2FL"/"2FR", or the bare pair code "2F" when isPairDefault
   const rateRoom = target.unit ? target.unit.room : room; // always a real UNITS room code for the rate lookup
   const digits = room.replace(/\D/g, "");
   const floorNum = parseInt(digits[0] || "0", 10);
@@ -4226,7 +4243,7 @@ function buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPa
   // code ("2F", isPairDefault) stays generic ("2 Bedroom", no Left/Right)
   // per Jonia.
   const bedroomSide = (!target.isPairDefault && target.unit && target.unit.groupId)
-    ? (room.endsWith("L") ? "Left Bedroom" : room.endsWith("R") ? "Right Bedroom" : null)
+    ? (room.endsWith("L") ? "Left Bedroom" : room.endsWith("R") ? "Right Bedroom" : room.endsWith("M") ? "Middle Bedroom" : null)
     : null;
   const aptLine = bedroomSide
     ? `- Apt ${room} - ${bedroomSide} (Located on the ${floorLabel} Floor)`
