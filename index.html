@@ -481,6 +481,11 @@
           </div>
         </div>
 
+        <div class="form-group" id="rateOverrideRow">
+          <label for="rateOverride">Rate (Full Upfront, optional — overrides the Rate Sheet for this recap only)</label>
+          <input type="number" id="rateOverride" min="0" step="any" placeholder="Leave blank to use the Rate Sheet rate" oninput="onRateOverrideInput()">
+        </div>
+
         <div class="form-group" id="bookingTypeRow" style="display:none;">
           <label>Booking type (auto-detected)</label>
           <span class="booking-tag" id="bookingTag">—</span>
@@ -552,10 +557,10 @@
           <div class="internal-metric-val" id="roValue">—</div>
         </div>
         <div>
-          <div class="internal-metric-label">Commission % (placeholder)</div>
+          <div class="internal-metric-label">Commission %</div>
           <input type="number" class="internal-commission-input" id="commissionPct" value="5" step="0.1" min="0" oninput="saveCommission()">
           <div class="internal-metric-val" id="commissionValue" style="margin-top:6px;">—</div>
-          <div class="internal-note">Commission = (Selling Rate − Utilities) × months stayed × Commission %.</div>
+          <div class="internal-note">Commission = (monthly rent − utilities) × months stayed × Commission %, shown for each payment option.</div>
         </div>
       </div>
     </div>
@@ -1014,6 +1019,8 @@ function updateCleaningFee() {
 }
 
 function onRoomSelectionChange() {
+  const ro = document.getElementById("rateOverride");
+  if (ro) ro.value = ""; // an override only applies to the selection it was typed for
   updateCleaningFee();
   updateSellingRateDisplay();
   autoGenerate();
@@ -2468,7 +2475,14 @@ function updateSellingRateDisplay() {
       : getFullUpfrontRate(target.building, target.room, season);
   }
 
-  if (!val || isNaN(val) || val <= 0) {
+  const override = getRateOverride();
+  if (override) {
+    // Typed rate replaces the Rate Sheet rate for this recap only — the
+    // Rate Sheet's saved value is never touched.
+    disp.value = money(override) + " (override)";
+    disp.style.color = "#303c6c";
+    currentSellingRate = override;
+  } else if (!val || isNaN(val) || val <= 0) {
     disp.value = "⚠ Not set — add it in Rate Sheet tab";
     disp.style.color = "#d4706b";
     currentSellingRate = null;
@@ -2477,6 +2491,17 @@ function updateSellingRateDisplay() {
     disp.style.color = "";
     currentSellingRate = val;
   }
+}
+
+function getRateOverride() {
+  const el = document.getElementById("rateOverride");
+  const v = el ? parseFloat(el.value) : NaN;
+  return (!isNaN(v) && v > 0) ? v : null;
+}
+
+function onRateOverrideInput() {
+  updateSellingRateDisplay();
+  autoGenerate();
 }
 
 // ── INTERNAL: BASE RATE LOOKUP, %(+/-) IA & COMMISSION (never shown to prospect) ──
@@ -2627,7 +2652,17 @@ function updateInternalPanel() {
   } else {
     const months = calcMonths(moveIn, moveOut);
     const utilitiesFee = getUtilitiesFee(target);
-    commEl.textContent = money(calculateCommission(sellingRate, getCommissionPct(), months, utilitiesFee));
+    const pct = getCommissionPct();
+    // Same Option 1/2/3 rates the recap itself uses: Option 3 = selling rate
+    // (full upfront), Option 2 = +$200, Option 1 = +$500. Summer (NY only)
+    // has no 2-instalment option, so Full Upfront is labelled "Option 2".
+    const isSummer = target.isBoston ? false : detectBookingType(moveIn, moveOut) === "summer";
+    const rows = [["Option 1 (Monthly)", sellingRate + 500]];
+    if (!isSummer) rows.push(["Option 2 (2 instalments)", sellingRate + 200]);
+    rows.push([isSummer ? "Option 2 (Full upfront)" : "Option 3 (Full upfront)", sellingRate]);
+    commEl.innerHTML = rows.map(([label, rate]) =>
+      `<div style="display:flex;justify-content:space-between;gap:16px;font-size:14px;"><span style="font-weight:500;">${label}</span><span>${money(calculateCommission(rate, pct, months, utilitiesFee))}</span></div>`
+    ).join("");
   }
 }
 
