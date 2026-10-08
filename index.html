@@ -1308,6 +1308,7 @@ function buildNyBrokerData() {
         categoryLabel: CATEGORY_LABELS[u.category] || u.category,
         layout: (u.layoutRaw && u.layoutRaw !== "(same as above)") ? u.layoutRaw : (anchor && anchor.layoutRaw) || "",
         groupId: u.groupId || null,
+        gender: (() => { const g = u.groupId ? getRoomGender(building, u.room, "fall") : ""; return g === "M" ? "Male" : g === "F" ? "Female" : ""; })(),
         status: getRoomSeasonStatus(building, u, "fall"),
         opt1: full === null ? null : full + 500,
         opt2: full === null ? null : full + 200,
