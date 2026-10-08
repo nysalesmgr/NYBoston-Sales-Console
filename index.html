@@ -161,6 +161,12 @@
   @media (max-width: 640px) { .internal-grid { grid-template-columns: 1fr; } }
 
   /* ── Rate Sheet: client request filter (budget / room type / same COO) ── */
+  .broker-sync-panel { border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fafafa; padding: 8px 12px; margin-bottom: 1rem; max-width: 50%; }
+  .broker-sync-panel summary { font-size: 12px; font-weight: 600; color: var(--text-secondary); cursor: pointer; user-select: none; }
+  .broker-sync-body { margin-top: 10px; }
+  .broker-sync-body .form-group { margin-bottom: 10px; }
+  .broker-sync-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .broker-sync-status { font-size: 12px; color: var(--text-secondary); }
   #rateSheetSearchRow { max-width: 50%; }
   .client-filter-panel { border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fafafa; padding: 0.85rem 1rem; margin-bottom: 1rem; max-width: 50%; }
   .client-filter-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; user-select: none; }
@@ -409,6 +415,30 @@
           <button type="button" class="btn-copy" id="expandAllBtn" onclick="expandAllRateCards()">⊕ Expand All</button>
           <button type="button" class="btn-copy" id="collapseAllBtn" onclick="collapseAllRateCards()">⊖ Collapse All</button>
         </div>
+
+        <details class="broker-sync-panel" id="brokerSyncPanel">
+          <summary>Broker dashboard sync (internal)</summary>
+          <div class="broker-sync-body">
+            <div class="form-group">
+              <label for="brokerGhOwner">GitHub username (owner of the broker repo)</label>
+              <input type="text" id="brokerGhOwner" placeholder="e.g. heritage-collection" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label for="brokerGhRepo">Repo name</label>
+              <input type="text" id="brokerGhRepo" placeholder="e.g. heritage-brokers" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label for="brokerGhToken">Access token (only for that one repo — stays in this browser)</label>
+              <input type="password" id="brokerGhToken" autocomplete="off">
+            </div>
+            <div class="broker-sync-actions">
+              <button type="button" class="btn-copy" onclick="saveBrokerSyncSettings()">Save settings</button>
+              <button type="button" class="btn-copy" onclick="pushBrokerData(true)">⟳ Sync now</button>
+              <span class="broker-sync-status" id="brokerSyncStatus">Not set up yet.</span>
+            </div>
+            <div class="internal-note" style="margin-top:8px;">Once set up, changes to Fall rates, availability or the "Show in Broker Sheet" ticks are saved to the broker repo a few seconds after you make them. Broker pages show the change about a minute later.</div>
+          </div>
+        </details>
 
         <div class="pin-gate" id="pinGate">
           <label for="pinInput" style="margin-bottom:0;">Unlock to Edit (PIN required)</label>
@@ -1141,6 +1171,7 @@ function refreshGroupWholeCellHighlight(building, groupId, season) {
 
 function saveRoomStatusStore() {
   localStorage.setItem("hc_room_status_v1", JSON.stringify(statusStore));
+  scheduleBrokerPush();
 }
 
 function loadRoomStatus() {
@@ -1171,6 +1202,7 @@ function setBrokerSheetNy(building, room, checked) {
 
 function saveBrokerSheetNyStore() {
   localStorage.setItem("hc_broker_sheet_ny_fall_v1", JSON.stringify(brokerSheetStoreNy));
+  scheduleBrokerPush();
 }
 
 function loadBrokerSheetNy() {
@@ -1186,6 +1218,212 @@ function onBrokerSheetNyToggle(checkboxEl) {
   setBrokerSheetNy(building, room, checkboxEl.checked);
   saveBrokerSheetNyStore();
 }
+
+// ── Broker dashboard sync (NY Fall, read-only broker page) ───────────────
+// Builds a snapshot of every "Show in Broker Sheet" unit (Fall only) and
+// posts it to a Google Apps Script web app, which stores it for the
+// separate broker.html dashboard to read. Deliberately excludes COO and
+// noise code, and never includes Summer rates. The web app URL + shared
+// secret are typed in by the user and kept only in this browser.
+const BROKER_GH_KEY = "hc_broker_github_v1"; // { owner, repo, token } — stays in this browser only
+const BROKER_DATA_PATH = "broker-data.json";
+const BROKER_BRANCH = "main";
+let _brokerPushTimer = null;
+let _brokerPushRunning = false;
+let _brokerPushAgain = false;
+
+function brokerWasherDryerLabel(u) {
+  const wd = String(amenityDisplay(u, getAnchorUnit(u), "washerDryer") || "").trim();
+  if (!wd || wd === "-") return "";
+  if (/^no$/i.test(wd)) return "No";
+  if (/shared/i.test(wd)) return wd.replace("&", "and");
+  return "In-unit";
+}
+
+function buildNyBrokerData() {
+  const num = v => (v === undefined || v === null || isNaN(v) || v <= 0) ? null : v;
+  const buildings = [];
+  const areaOf = b => Object.keys(NY_BUILDING_AREA_GROUPS).find(a => NY_BUILDING_AREA_GROUPS[a].includes(b)) || "";
+  const ordered = [];
+  Object.keys(NY_BUILDING_AREA_GROUPS).forEach(a => NY_BUILDING_AREA_GROUPS[a].forEach(b => { if (BUILDINGS.includes(b)) ordered.push(b); }));
+  BUILDINGS.forEach(b => { if (!ordered.includes(b)) ordered.push(b); });
+  ordered.forEach(building => {
+    const units = [];
+    getRoomsForBuilding(building).forEach(u => {
+      if (!isInBrokerSheetNy(building, u.room)) return;
+      const anchor = getAnchorUnit(u);
+      const full = num(getFullUpfrontRate(building, u.room, "fall"));
+      const groupFull = u.groupId ? num(getGroupFullUpfrontRate(building, u.groupId, "fall")) : null;
+      units.push({
+        room: u.room.replace(/\s+/g, ""),
+        category: u.category,
+        categoryLabel: CATEGORY_LABELS[u.category] || u.category,
+        layout: (u.layoutRaw && u.layoutRaw !== "(same as above)") ? u.layoutRaw : (anchor && anchor.layoutRaw) || "",
+        groupId: u.groupId || null,
+        status: getRoomSeasonStatus(building, u, "fall"),
+        opt1: full === null ? null : full + 500,
+        opt2: full === null ? null : full + 200,
+        opt3: full,
+        wholeAptOpt3: groupFull,
+        sqft: amenityDisplay(u, anchor, "sqft") || "",
+        washerDryer: brokerWasherDryerLabel(u),
+        kitchenSink: amenityDisplay(u, anchor, "kitchenSink") || "",
+        stove: amenityDisplay(u, anchor, "stove") || "",
+        sofa: amenityDisplay(u, anchor, "sofa") || "",
+        diningTable: amenityDisplay(u, anchor, "diningTable") || "",
+      });
+    });
+    if (!units.length) return;
+    const feat = NY_BUILDING_FEATURES[building] || {};
+    buildings.push({
+      name: building,
+      area: areaOf(building),
+      neighborhood: NY_BUILDING_NEIGHBORHOOD[building] || "",
+      elevator: feat.elevator === true ? true : feat.elevator === false ? false : null,
+      units,
+    });
+  });
+  return { season: "fall", buildings };
+}
+
+// Boston has no season split — one flat rate per room/apartment, with the
+// same Option 1/2/3 spread (+$500 / +$200 / base) the Boston quote uses.
+function buildBostonBrokerData() {
+  const num = v => (v === undefined || v === null || isNaN(v) || v <= 0) ? null : v;
+  const buildings = [];
+  BOSTON_BUILDINGS.forEach(building => {
+    const units = [];
+    getRoomsForBoston(building).forEach(u => {
+      if (!isInBrokerSheetBoston(building, u.room)) return;
+      const anchor = u.groupId ? (BOSTON_UNITS.find(x => x.building === building && x.groupId === u.groupId && x.groupRate !== undefined) || u) : u;
+      const full = num(bostonEffectiveFullUpfront(building, u.room));
+      const groupFull = u.groupId ? num(bostonEffectiveGroupFullUpfront(building, u.groupId)) : null;
+      const yes = f => bostonAmenityValue(u, f);
+      units.push({
+        room: u.room,
+        category: u.category,
+        categoryLabel: u.category === "1br" ? "1 Bedroom" : (CATEGORY_LABELS[u.category] || u.category),
+        groupId: u.groupId || null,
+        status: getBostonRoomStatus(building, u),
+        opt1: full === null ? null : full + 500,
+        opt2: full === null ? null : full + 200,
+        opt3: full,
+        wholeAptOpt3: groupFull,
+        sqft: String(u.sqft || anchor.sqft || ""),
+        washerDryer: yes("washerDryer") === "Yes" ? "In-unit" : "",
+        ac: yes("ac"), dishwasher: yes("dishwasher"), microwave: yes("microwave"), cooktop: yes("cooktop"),
+        sofa: yes("sofa"), diningTable: String(u.diningTable || anchor.diningTable || ""),
+      });
+    });
+    if (!units.length) return;
+    buildings.push({ name: building, area: "Boston", neighborhood: "", elevator: true, units });
+  });
+  return { buildings };
+}
+
+function buildBrokerPayload() {
+  const yearEl = document.getElementById("rateYear");
+  return {
+    version: 2,
+    updatedAt: new Date().toISOString(),
+    rateYear: yearEl ? yearEl.value : "",
+    ny: buildNyBrokerData(),
+    boston: buildBostonBrokerData(),
+  };
+}
+
+function countBrokerUnits(payload) {
+  return [payload.ny, payload.boston].reduce((n, part) => n + ((part && part.buildings) || []).reduce((m, b) => m + b.units.length, 0), 0);
+}
+
+function setBrokerSyncStatus(msg, color) {
+  const el = document.getElementById("brokerSyncStatus");
+  if (el) { el.textContent = msg; el.style.color = color || ""; }
+}
+
+function getBrokerGhSettings() {
+  try {
+    const o = JSON.parse(localStorage.getItem(BROKER_GH_KEY) || "{}");
+    return (o.owner && o.repo && o.token) ? o : null;
+  } catch (e) { return null; }
+}
+
+function loadBrokerSyncSettings() {
+  let o = {};
+  try { o = JSON.parse(localStorage.getItem(BROKER_GH_KEY) || "{}"); } catch (e) {}
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ""; };
+  set("brokerGhOwner", o.owner); set("brokerGhRepo", o.repo); set("brokerGhToken", o.token);
+  setBrokerSyncStatus(getBrokerGhSettings() ? "Ready — syncs automatically." : "Not set up yet.");
+}
+
+function saveBrokerSyncSettings() {
+  const o = {
+    owner: document.getElementById("brokerGhOwner").value.trim(),
+    repo: document.getElementById("brokerGhRepo").value.trim(),
+    token: document.getElementById("brokerGhToken").value.trim(),
+  };
+  try { localStorage.setItem(BROKER_GH_KEY, JSON.stringify(o)); } catch (e) {}
+  setBrokerSyncStatus(getBrokerGhSettings() ? "Saved. Click “Sync now” to publish the current rates." : "Not set up yet.");
+}
+
+// Called after any rate / status / broker-tick save. Debounced so typing a
+// rate doesn't commit once per keystroke; silently does nothing until the
+// GitHub settings have been saved.
+function scheduleBrokerPush() {
+  if (!getBrokerGhSettings()) return;
+  setBrokerSyncStatus("Changes pending…");
+  clearTimeout(_brokerPushTimer);
+  _brokerPushTimer = setTimeout(() => pushBrokerData(false), 4000);
+}
+
+function brokerUtf8ToBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+// Saves broker-data.json into the broker repo through GitHub's contents API.
+// The token is only ever sent to api.github.com.
+async function pushBrokerData(manual) {
+  const cfg = getBrokerGhSettings();
+  if (!cfg) { if (manual) setBrokerSyncStatus("Enter your GitHub username, repo and token, then save settings first.", "#d4706b"); return; }
+  if (_brokerPushRunning) { _brokerPushAgain = true; return; }
+  _brokerPushRunning = true;
+  setBrokerSyncStatus("Syncing…");
+  const api = "https://api.github.com/repos/" + encodeURIComponent(cfg.owner) + "/" + encodeURIComponent(cfg.repo) + "/contents/" + BROKER_DATA_PATH;
+  const headers = { "Authorization": "Bearer " + cfg.token, "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
+  const payload = buildBrokerPayload();
+  const body = brokerUtf8ToBase64(JSON.stringify(payload));
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let sha;
+      const g = await fetch(api + "?ref=" + BROKER_BRANCH + "&t=" + Date.now(), { headers, cache: "no-store" });
+      if (g.ok) sha = (await g.json()).sha;
+      else if (g.status === 401 || g.status === 403) { setBrokerSyncStatus("⚠ GitHub rejected the token — check it has access to this repo (Contents: read and write).", "#d4706b"); return; }
+      else if (g.status !== 404) { setBrokerSyncStatus("⚠ Couldn't reach the repo (" + g.status + ") — check the username and repo name.", "#d4706b"); return; }
+      const put = await fetch(api, {
+        method: "PUT", headers,
+        body: JSON.stringify({ message: "Update broker rates", content: body, branch: BROKER_BRANCH, ...(sha ? { sha } : {}) }),
+      });
+      if (put.ok) {
+        const t = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        setBrokerSyncStatus("✓ Saved " + t + " — " + countBrokerUnits(payload) + " units (live in about a minute)", "#7aab96");
+        return;
+      }
+      if (put.status === 409 || put.status === 422) continue; // out of date — fetch the latest sha and retry once
+      setBrokerSyncStatus("⚠ GitHub couldn't save it (" + put.status + ").", "#d4706b");
+      return;
+    }
+    setBrokerSyncStatus("⚠ GitHub couldn't save it — try Sync now again.", "#d4706b");
+  } catch (e) {
+    setBrokerSyncStatus("⚠ Sync failed — check your connection.", "#d4706b");
+  } finally {
+    _brokerPushRunning = false;
+    if (_brokerPushAgain) { _brokerPushAgain = false; scheduleBrokerPush(); }
+  }
+}
+
 
 // Counts INDIVIDUAL ROOMS (not distinct deals/groups) by status, split by
 // season — e.g. a 4-room whole-apartment deal marked "sold" for Fall
@@ -2326,6 +2564,7 @@ function saveRateSheet() {
   });
   localStorage.setItem("hc_rate_sheet_v3", JSON.stringify(rateSheetStore));
   localStorage.setItem("hc_rate_year_v1", document.getElementById("rateYear").value);
+  scheduleBrokerPush();
   showSaved();
   updateSellingRateDisplay();
   autoGenerate();
@@ -3032,6 +3271,7 @@ function setBostonRoomStatus(building, room, value) {
 
 function saveBostonStatusStore() {
   localStorage.setItem("hc_boston_room_status_v1", JSON.stringify(bostonStatusStore));
+  scheduleBrokerPush();
 }
 
 function loadBostonRoomStatus() {
@@ -3060,6 +3300,7 @@ function setBrokerSheetBoston(building, room, checked) {
 
 function saveBrokerSheetBostonStore() {
   localStorage.setItem("hc_broker_sheet_boston_v1", JSON.stringify(brokerSheetStoreBoston));
+  scheduleBrokerPush();
 }
 
 function loadBrokerSheetBoston() {
@@ -3445,6 +3686,7 @@ function saveBostonRateSheet() {
   });
   localStorage.setItem("hc_boston_rate_sheet_v1", JSON.stringify(bostonRateStore));
   recomputeAllBostonAutoOptions();
+  scheduleBrokerPush();
   showSaved();
 }
 
@@ -4510,6 +4752,7 @@ function populateBuildingDropdowns() {
 window.addEventListener("DOMContentLoaded", function() {
   populateBuildingDropdowns();
   loadClientFilterPanelState();
+  loadBrokerSyncSettings();
   loadRateSheet();
   updateSellingRateDisplay();
   updateBaseRateDisplay();
