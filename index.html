@@ -1328,6 +1328,7 @@ function buildNyBrokerData() {
       name: building,
       area: areaOf(building),
       neighborhood: NY_BUILDING_NEIGHBORHOOD[building] || "",
+      facing: (typeof BUILDING_FACING !== "undefined" && BUILDING_FACING[building]) || "",
       elevator: feat.elevator === true ? true : feat.elevator === false ? false : null,
       units,
     });
