@@ -298,6 +298,7 @@
   }
 .broker-sync-group{border:1px solid #dfe3ee;border-radius:8px;padding:10px 12px;margin-bottom:10px;}
 .broker-sync-title{font-weight:700;font-size:13px;margin-bottom:6px;}
+.broker-all{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;white-space:nowrap;cursor:pointer;margin-top:3px;}
 </style>
 </head>
 <body>
@@ -1237,11 +1238,36 @@ function loadBrokerSheetNy() {
   } catch (e) { brokerSheetStoreNy = {}; }
 }
 
+
+// "Select all" in a building's Show in Broker Sheet column header.
+function brokerSelectAll(headCb) {
+  const table = headCb.closest("table");
+  if (!table) return;
+  const isBoston = currentProperty === "boston";
+  table.querySelectorAll('tbody input[type="checkbox"][id^="broker_"]').forEach(box => {
+    box.checked = headCb.checked;
+    const b = box.getAttribute("data-building"), r = box.getAttribute("data-room");
+    if (isBoston) setBrokerSheetBoston(b, r, headCb.checked); else setBrokerSheetNy(b, r, headCb.checked);
+  });
+  if (isBoston) saveBrokerSheetBostonStore(); else saveBrokerSheetNyStore();
+}
+
+// Keeps each header "Select all" box in step with its rows.
+function syncBrokerAllBoxes() {
+  document.querySelectorAll("#rateCardsWrap table").forEach(table => {
+    const head = table.querySelector(".broker-all-cb");
+    if (!head) return;
+    const boxes = table.querySelectorAll('tbody input[type="checkbox"][id^="broker_"]');
+    head.checked = boxes.length > 0 && Array.from(boxes).every(b => b.checked);
+  });
+}
+
 function onBrokerSheetNyToggle(checkboxEl) {
   const building = checkboxEl.getAttribute("data-building");
   const room = checkboxEl.getAttribute("data-room");
   setBrokerSheetNy(building, room, checkboxEl.checked);
   saveBrokerSheetNyStore();
+  syncBrokerAllBoxes();
 }
 
 // ── Broker dashboard sync (NY Fall, read-only broker page) ───────────────
@@ -2199,7 +2225,7 @@ function buildRoomRateTableHtml(building, slug, rooms) {
       `<tr>` +
         amenityHeaderRow2 +
         `<th class="rate-group-summer">Gender</th><th class="rate-group-summer">Status</th><th class="rate-group-summer">IA Rate ($/mo)</th><th class="rate-group-summer rs-whole-col">Whole Apartment (Full Upfront)</th><th class="rate-group-summer">Option 2 (Full Upfront)</th><th class="rate-group-summer">Option 1 (Monthly)</th>` +
-        `<th class="rate-group-fall">Gender</th><th class="rate-group-fall">Status</th><th class="rate-group-fall">IA Rate ($/mo)</th><th class="rate-group-fall rs-whole-col">Whole Apartment (Full Upfront)</th><th class="rate-group-fall">Option 3 (Full Upfront)</th><th class="rate-group-fall">Option 2 (2 Instalments)</th><th class="rate-group-fall">Option 1 (Monthly)</th><th class="rate-group-fall">Show in Broker Sheet</th>` +
+        `<th class="rate-group-fall">Gender</th><th class="rate-group-fall">Status</th><th class="rate-group-fall">IA Rate ($/mo)</th><th class="rate-group-fall rs-whole-col">Whole Apartment (Full Upfront)</th><th class="rate-group-fall">Option 3 (Full Upfront)</th><th class="rate-group-fall">Option 2 (2 Instalments)</th><th class="rate-group-fall">Option 1 (Monthly)</th><th class="rate-group-fall">Show in Broker Sheet<br><label class="broker-all"><input type="checkbox" class="broker-all-cb" onchange="brokerSelectAll(this)"> Select all</label></th>` +
       `</tr>` +
     `</thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -2303,7 +2329,8 @@ function buildRateSheetSectionsHtml() {
   return html;
 }
 
-function renderRateSheetTable() {
+function renderRateSheetTable() { renderRateSheetTableCore(); syncBrokerAllBoxes(); }
+function renderRateSheetTableCore() {
   if (currentProperty === "boston") { renderBostonRateSheetTable(); return; }
   const wrap = document.getElementById("rateCardsWrap");
 
@@ -3387,6 +3414,7 @@ function onBrokerSheetBostonToggle(checkboxEl) {
   const room = checkboxEl.getAttribute("data-room");
   setBrokerSheetBoston(building, room, checkboxEl.checked);
   saveBrokerSheetBostonStore();
+  syncBrokerAllBoxes();
 }
 
 function onBostonStatusChange(selectEl) {
@@ -3708,7 +3736,7 @@ function buildBostonRoomTableHtml(building, slug, rooms) {
 
   const amenityHeader = amenityColumnsCollapsed ? "" : BOSTON_AMENITY_FIELDS.map(([f, l]) => `<th class="amenity-col">${l}</th>`).join("");
   return `<div class="rate-table-scroll"><table class="rate-table"><thead><tr>` +
-    `<th>Unit No</th><th>Category</th>${amenityHeader}<th>Gender</th><th>Status</th><th>IA Rate ($/mo)</th><th class="rs-whole-col">Whole Apartment (Full Upfront)</th><th>Option 3 (Full Upfront)</th><th>Option 2 (2 Instalments)</th><th>Option 1 (Monthly)</th><th>Show in Broker Sheet</th>` +
+    `<th>Unit No</th><th>Category</th>${amenityHeader}<th>Gender</th><th>Status</th><th>IA Rate ($/mo)</th><th class="rs-whole-col">Whole Apartment (Full Upfront)</th><th>Option 3 (Full Upfront)</th><th>Option 2 (2 Instalments)</th><th>Option 1 (Monthly)</th><th>Show in Broker Sheet<br><label class="broker-all"><input type="checkbox" class="broker-all-cb" onchange="brokerSelectAll(this)"> Select all</label></th>` +
   `</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
