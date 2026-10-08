@@ -296,6 +296,8 @@
     .rate-table td[data-label]::before { content: attr(data-label); display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); margin-bottom: 4px; }
     .rate-table input[type="number"] { width: 100%; }
   }
+.broker-sync-group{border:1px solid #dfe3ee;border-radius:8px;padding:10px 12px;margin-bottom:10px;}
+.broker-sync-title{font-weight:700;font-size:13px;margin-bottom:6px;}
 </style>
 </head>
 <body>
@@ -419,24 +421,47 @@
         <details class="broker-sync-panel" id="brokerSyncPanel">
           <summary>Broker dashboard sync (internal)</summary>
           <div class="broker-sync-body">
-            <div class="form-group">
-              <label for="brokerGhOwner">GitHub username (owner of the broker repo)</label>
-              <input type="text" id="brokerGhOwner" placeholder="e.g. heritage-collection" autocomplete="off">
+            <div class="broker-sync-group">
+              <div class="broker-sync-title">Boston broker link</div>
+              <div class="form-group">
+                <label for="brokerGhOwner">GitHub username</label>
+                <input type="text" id="brokerGhOwner" placeholder="e.g. nysalesmgr" autocomplete="off">
+              </div>
+              <div class="form-group">
+                <label for="brokerGhRepo">Repo name</label>
+                <input type="text" id="brokerGhRepo" placeholder="e.g. heritage-brokers" autocomplete="off">
+              </div>
+              <div class="form-group">
+                <label for="brokerGhToken">Access token (only for this repo — stays in this browser)</label>
+                <input type="password" id="brokerGhToken" autocomplete="off">
+              </div>
+              <div class="broker-sync-actions">
+                <button type="button" class="btn-copy" onclick="saveBrokerSyncSettings('boston')">Save settings</button>
+                <button type="button" class="btn-copy" onclick="pushBrokerData(true, 'boston')">⟳ Sync now</button>
+                <span class="broker-sync-status" id="brokerSyncStatus">Not set up yet.</span>
+              </div>
             </div>
-            <div class="form-group">
-              <label for="brokerGhRepo">Repo name</label>
-              <input type="text" id="brokerGhRepo" placeholder="e.g. heritage-brokers" autocomplete="off">
+            <div class="broker-sync-group">
+              <div class="broker-sync-title">NY broker link (Fall)</div>
+              <div class="form-group">
+                <label for="brokerGhOwnerNy">GitHub username</label>
+                <input type="text" id="brokerGhOwnerNy" placeholder="e.g. nysalesmgr" autocomplete="off">
+              </div>
+              <div class="form-group">
+                <label for="brokerGhRepoNy">Repo name</label>
+                <input type="text" id="brokerGhRepoNy" placeholder="e.g. heritage-brokers-ny" autocomplete="off">
+              </div>
+              <div class="form-group">
+                <label for="brokerGhTokenNy">Access token (only for this repo — stays in this browser)</label>
+                <input type="password" id="brokerGhTokenNy" autocomplete="off">
+              </div>
+              <div class="broker-sync-actions">
+                <button type="button" class="btn-copy" onclick="saveBrokerSyncSettings('ny')">Save settings</button>
+                <button type="button" class="btn-copy" onclick="pushBrokerData(true, 'ny')">⟳ Sync now</button>
+                <span class="broker-sync-status" id="brokerSyncStatusNy">Not set up yet.</span>
+              </div>
             </div>
-            <div class="form-group">
-              <label for="brokerGhToken">Access token (only for that one repo — stays in this browser)</label>
-              <input type="password" id="brokerGhToken" autocomplete="off">
-            </div>
-            <div class="broker-sync-actions">
-              <button type="button" class="btn-copy" onclick="saveBrokerSyncSettings()">Save settings</button>
-              <button type="button" class="btn-copy" onclick="pushBrokerData(true)">⟳ Sync now</button>
-              <span class="broker-sync-status" id="brokerSyncStatus">Not set up yet.</span>
-            </div>
-            <div class="internal-note" style="margin-top:8px;">Once set up, changes to Fall rates, availability or the "Show in Broker Sheet" ticks are saved to the broker repo a few seconds after you make them. Broker pages show the change about a minute later.</div>
+            <div class="internal-note" style="margin-top:8px;">Each property publishes to its own repo, so Boston and NY brokers only ever see their own rates. Once set up, changes to rates, availability or the "Show in Broker Sheet" ticks are saved a few seconds after you make them.</div>
           </div>
         </details>
 
@@ -1228,9 +1253,6 @@ function onBrokerSheetNyToggle(checkboxEl) {
 const BROKER_GH_KEY = "hc_broker_github_v1"; // { owner, repo, token } — stays in this browser only
 const BROKER_DATA_PATH = "broker-data.json";
 const BROKER_BRANCH = "main";
-let _brokerPushTimer = null;
-let _brokerPushRunning = false;
-let _brokerPushAgain = false;
 
 function brokerWasherDryerLabel(u) {
   const wd = String(amenityDisplay(u, getAnchorUnit(u), "washerDryer") || "").trim();
@@ -1335,48 +1357,76 @@ function buildBrokerPayload() {
   };
 }
 
+// Boston and NY brokers must never see each other's rates, so each property
+// publishes to its OWN GitHub repo (own link, own token) and each repo's
+// broker-data.json contains only that property.
+const BROKER_TARGETS = {
+  boston: { label: "Boston", key: "hc_broker_github_v1",    ids: { owner: "brokerGhOwner",   repo: "brokerGhRepo",   token: "brokerGhToken",   status: "brokerSyncStatus" } },
+  ny:     { label: "NY",     key: "hc_broker_github_ny_v1", ids: { owner: "brokerGhOwnerNy", repo: "brokerGhRepoNy", token: "brokerGhTokenNy", status: "brokerSyncStatusNy" } },
+};
+const _brokerState = { boston: { timer: null, running: false, again: false, last: "" }, ny: { timer: null, running: false, again: false, last: "" } };
+
+function buildBrokerPayloadFor(prop) {
+  const yearEl = document.getElementById("rateYear");
+  const p = { version: 2, updatedAt: new Date().toISOString(), rateYear: yearEl ? yearEl.value : "" };
+  p[prop] = prop === "ny" ? buildNyBrokerData() : buildBostonBrokerData();
+  return p;
+}
+
 function countBrokerUnits(payload) {
   return [payload.ny, payload.boston].reduce((n, part) => n + ((part && part.buildings) || []).reduce((m, b) => m + b.units.length, 0), 0);
 }
 
-function setBrokerSyncStatus(msg, color) {
-  const el = document.getElementById("brokerSyncStatus");
+function setBrokerSyncStatus(msg, color, prop) {
+  const el = document.getElementById(BROKER_TARGETS[prop || "boston"].ids.status);
   if (el) { el.textContent = msg; el.style.color = color || ""; }
 }
 
-function getBrokerGhSettings() {
+function getBrokerGhSettings(prop) {
   try {
-    const o = JSON.parse(localStorage.getItem(BROKER_GH_KEY) || "{}");
+    const o = JSON.parse(localStorage.getItem(BROKER_TARGETS[prop].key) || "{}");
     return (o.owner && o.repo && o.token) ? o : null;
   } catch (e) { return null; }
 }
 
 function loadBrokerSyncSettings() {
-  let o = {};
-  try { o = JSON.parse(localStorage.getItem(BROKER_GH_KEY) || "{}"); } catch (e) {}
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ""; };
-  set("brokerGhOwner", o.owner); set("brokerGhRepo", o.repo); set("brokerGhToken", o.token);
-  setBrokerSyncStatus(getBrokerGhSettings() ? "Ready — syncs automatically." : "Not set up yet.");
+  Object.keys(BROKER_TARGETS).forEach(prop => {
+    let o = {};
+    try { o = JSON.parse(localStorage.getItem(BROKER_TARGETS[prop].key) || "{}"); } catch (e) {}
+    const ids = BROKER_TARGETS[prop].ids;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ""; };
+    set(ids.owner, o.owner); set(ids.repo, o.repo); set(ids.token, o.token);
+    setBrokerSyncStatus(getBrokerGhSettings(prop) ? "Ready — syncs automatically." : "Not set up yet.", "", prop);
+  });
 }
 
-function saveBrokerSyncSettings() {
-  const o = {
-    owner: document.getElementById("brokerGhOwner").value.trim(),
-    repo: document.getElementById("brokerGhRepo").value.trim(),
-    token: document.getElementById("brokerGhToken").value.trim(),
-  };
-  try { localStorage.setItem(BROKER_GH_KEY, JSON.stringify(o)); } catch (e) {}
-  setBrokerSyncStatus(getBrokerGhSettings() ? "Saved. Click “Sync now” to publish the current rates." : "Not set up yet.");
+function saveBrokerSyncSettings(prop) {
+  prop = prop || "boston";
+  const ids = BROKER_TARGETS[prop].ids;
+  const clean = v => String(v || "").trim();
+  let owner = clean(document.getElementById(ids.owner).value);
+  let repo = clean(document.getElementById(ids.repo).value);
+  // Forgive a pasted web address: keep just the username / repo name.
+  owner = owner.replace(/^https?:\/\//i, "").replace(/\.github\.io.*$/i, "").replace(/^github\.com\//i, "").split("/")[0];
+  repo = repo.replace(/^https?:\/\//i, "").split("/").filter(Boolean).pop() || "";
+  const o = { owner, repo, token: clean(document.getElementById(ids.token).value) };
+  document.getElementById(ids.owner).value = o.owner;
+  document.getElementById(ids.repo).value = o.repo;
+  try { localStorage.setItem(BROKER_TARGETS[prop].key, JSON.stringify(o)); } catch (e) {}
+  _brokerState[prop].last = "";
+  setBrokerSyncStatus(getBrokerGhSettings(prop) ? "Saved. Click “Sync now” to publish the current rates." : "Not set up yet.", "", prop);
 }
 
 // Called after any rate / status / broker-tick save. Debounced so typing a
-// rate doesn't commit once per keystroke; silently does nothing until the
-// GitHub settings have been saved.
+// rate doesn't commit once per keystroke; silently skips any property whose
+// GitHub settings haven't been saved yet.
 function scheduleBrokerPush() {
-  if (!getBrokerGhSettings()) return;
-  setBrokerSyncStatus("Changes pending…");
-  clearTimeout(_brokerPushTimer);
-  _brokerPushTimer = setTimeout(() => pushBrokerData(false), 4000);
+  Object.keys(BROKER_TARGETS).forEach(prop => {
+    if (!getBrokerGhSettings(prop)) return;
+    setBrokerSyncStatus("Changes pending…", "", prop);
+    clearTimeout(_brokerState[prop].timer);
+    _brokerState[prop].timer = setTimeout(() => pushBrokerData(false, prop), 2000);
+  });
 }
 
 function brokerUtf8ToBase64(str) {
@@ -1386,18 +1436,21 @@ function brokerUtf8ToBase64(str) {
   return btoa(bin);
 }
 
-// Saves broker-data.json into the broker repo through GitHub's contents API.
-// The token is only ever sent to api.github.com.
-async function pushBrokerData(manual) {
-  const cfg = getBrokerGhSettings();
-  if (!cfg) { if (manual) setBrokerSyncStatus("Enter your GitHub username, repo and token, then save settings first.", "#d4706b"); return; }
-  if (_brokerPushRunning) { _brokerPushAgain = true; return; }
-  _brokerPushRunning = true;
-  setBrokerSyncStatus("Syncing…");
+// Saves broker-data.json into that property's broker repo through GitHub's
+// contents API. The token is only ever sent to api.github.com.
+async function pushBrokerData(manual, prop) {
+  prop = prop || "boston";
+  const st = _brokerState[prop];
+  const cfg = getBrokerGhSettings(prop);
+  const say = (m, c) => setBrokerSyncStatus(m, c, prop);
+  if (!cfg) { if (manual) say("Enter your GitHub username, repo and token, then save settings first.", "#d4706b"); return; }
+  if (st.running) { st.again = true; return; }
+  st.running = true;
+  say("Syncing…");
   const repoApi = "https://api.github.com/repos/" + encodeURIComponent(cfg.owner) + "/" + encodeURIComponent(cfg.repo);
   const api = repoApi + "/contents/" + BROKER_DATA_PATH;
   const headers = { "Authorization": "Bearer " + cfg.token, "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
-  const fail = m => setBrokerSyncStatus("⚠ " + m, "#d4706b");
+  const fail = m => say("⚠ " + m, "#d4706b");
   try {
     // 1) Can this token see the repo at all? Also learns the repo's real default branch.
     const r0 = await fetch(repoApi, { headers, cache: "no-store" });
@@ -1409,7 +1462,9 @@ async function pushBrokerData(manual) {
     const branch = info.default_branch || BROKER_BRANCH;
 
     // 2) Save the data file (create it, or update it using its current sha).
-    const payload = buildBrokerPayload();
+    const payload = buildBrokerPayloadFor(prop);
+    const fingerprint = JSON.stringify(Object.assign({}, payload, { updatedAt: "" }));
+    if (!manual && fingerprint === st.last) { say("✓ Up to date — " + countBrokerUnits(payload) + " units", "#7aab96"); return; }
     const body = brokerUtf8ToBase64(JSON.stringify(payload));
     for (let attempt = 0; attempt < 2; attempt++) {
       let sha;
@@ -1421,12 +1476,13 @@ async function pushBrokerData(manual) {
         body: JSON.stringify({ message: "Update broker rates", content: body, branch, ...(sha ? { sha } : {}) }),
       });
       if (put.ok) {
+        st.last = fingerprint;
         const t = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-        setBrokerSyncStatus("✓ Saved " + t + " — " + countBrokerUnits(payload) + " units (live in about a minute)", "#7aab96");
+        say("✓ Saved " + t + " — " + countBrokerUnits(payload) + " units", "#7aab96");
         return;
       }
       if (put.status === 409 || put.status === 422) continue; // out of date — fetch the latest sha and retry once
-      if (put.status === 404) { fail("GitHub couldn't save to branch “" + branch + "”. If the repo is empty, upload any file to it first (e.g. broker-boston.html)."); return; }
+      if (put.status === 404) { fail("GitHub couldn't save to branch “" + branch + "”. If the repo is empty, upload any file to it first (e.g. the broker page)."); return; }
       if (put.status === 403) { fail("GitHub refused the save — the token needs Contents set to “Read and write” for this repo."); return; }
       fail("GitHub couldn't save it (" + put.status + ").");
       return;
@@ -1435,8 +1491,8 @@ async function pushBrokerData(manual) {
   } catch (e) {
     fail("Sync failed — check your connection.");
   } finally {
-    _brokerPushRunning = false;
-    if (_brokerPushAgain) { _brokerPushAgain = false; scheduleBrokerPush(); }
+    st.running = false;
+    if (st.again) { st.again = false; scheduleBrokerPush(); }
   }
 }
 
