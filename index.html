@@ -1298,8 +1298,11 @@ function buildBostonBrokerData() {
       const anchor = u.groupId ? (BOSTON_UNITS.find(x => x.building === building && x.groupId === u.groupId && x.groupRate !== undefined) || u) : u;
       const full = num(bostonEffectiveFullUpfront(building, u.room));
       const groupFull = u.groupId ? num(bostonEffectiveGroupFullUpfront(building, u.groupId)) : null;
-      const yes = f => bostonAmenityValue(u, f);
+      const yes = f => bostonAmenityValue(u.groupId ? anchor : u, f);
+      const gender = u.groupId ? getRoomGender(building, u.room) : "";
       units.push({
+        gender: gender === "M" ? "Male" : gender === "F" ? "Female" : "",
+        oven: String(yes("oven") || ""),
         room: u.room,
         category: u.category,
         categoryLabel: u.category === "1br" ? "1 Bedroom" : (CATEGORY_LABELS[u.category] || u.category),
@@ -1309,10 +1312,10 @@ function buildBostonBrokerData() {
         opt2: full === null ? null : full + 200,
         opt3: full,
         wholeAptOpt3: groupFull,
-        sqft: String(u.sqft || anchor.sqft || ""),
-        washerDryer: yes("washerDryer") === "Yes" ? "In-unit" : "",
+        sqft: String(yes("sqft") || ""),
+        washerDryer: yes("washerDryer"),
         ac: yes("ac"), dishwasher: yes("dishwasher"), microwave: yes("microwave"), cooktop: yes("cooktop"),
-        sofa: yes("sofa"), diningTable: String(u.diningTable || anchor.diningTable || ""),
+        sofa: yes("sofa"), diningTable: String(yes("diningTable") || ""),
       });
     });
     if (!units.length) return;
@@ -1391,20 +1394,31 @@ async function pushBrokerData(manual) {
   if (_brokerPushRunning) { _brokerPushAgain = true; return; }
   _brokerPushRunning = true;
   setBrokerSyncStatus("Syncing…");
-  const api = "https://api.github.com/repos/" + encodeURIComponent(cfg.owner) + "/" + encodeURIComponent(cfg.repo) + "/contents/" + BROKER_DATA_PATH;
+  const repoApi = "https://api.github.com/repos/" + encodeURIComponent(cfg.owner) + "/" + encodeURIComponent(cfg.repo);
+  const api = repoApi + "/contents/" + BROKER_DATA_PATH;
   const headers = { "Authorization": "Bearer " + cfg.token, "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
-  const payload = buildBrokerPayload();
-  const body = brokerUtf8ToBase64(JSON.stringify(payload));
+  const fail = m => setBrokerSyncStatus("⚠ " + m, "#d4706b");
   try {
+    // 1) Can this token see the repo at all? Also learns the repo's real default branch.
+    const r0 = await fetch(repoApi, { headers, cache: "no-store" });
+    if (r0.status === 401) { fail("GitHub didn't accept the token — it may be wrong or expired. Create a new one and save it again."); return; }
+    if (r0.status === 404) { fail("GitHub can't find “" + cfg.owner + "/" + cfg.repo + "” with this token. Check the username and repo name are exact, and that the token was created for this repo (Only select repositories → this repo)."); return; }
+    if (!r0.ok) { fail("Couldn't reach the repo (" + r0.status + ")."); return; }
+    const info = await r0.json();
+    if (info.permissions && info.permissions.push === false) { fail("The token can see the repo but isn't allowed to change it — set Contents to “Read and write”."); return; }
+    const branch = info.default_branch || BROKER_BRANCH;
+
+    // 2) Save the data file (create it, or update it using its current sha).
+    const payload = buildBrokerPayload();
+    const body = brokerUtf8ToBase64(JSON.stringify(payload));
     for (let attempt = 0; attempt < 2; attempt++) {
       let sha;
-      const g = await fetch(api + "?ref=" + BROKER_BRANCH + "&t=" + Date.now(), { headers, cache: "no-store" });
+      const g = await fetch(api + "?ref=" + encodeURIComponent(branch) + "&t=" + Date.now(), { headers, cache: "no-store" });
       if (g.ok) sha = (await g.json()).sha;
-      else if (g.status === 401 || g.status === 403) { setBrokerSyncStatus("⚠ GitHub rejected the token — check it has access to this repo (Contents: read and write).", "#d4706b"); return; }
-      else if (g.status !== 404) { setBrokerSyncStatus("⚠ Couldn't reach the repo (" + g.status + ") — check the username and repo name.", "#d4706b"); return; }
+      else if (g.status !== 404) { fail("Couldn't read " + BROKER_DATA_PATH + " (" + g.status + ")."); return; }
       const put = await fetch(api, {
         method: "PUT", headers,
-        body: JSON.stringify({ message: "Update broker rates", content: body, branch: BROKER_BRANCH, ...(sha ? { sha } : {}) }),
+        body: JSON.stringify({ message: "Update broker rates", content: body, branch, ...(sha ? { sha } : {}) }),
       });
       if (put.ok) {
         const t = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -1412,12 +1426,14 @@ async function pushBrokerData(manual) {
         return;
       }
       if (put.status === 409 || put.status === 422) continue; // out of date — fetch the latest sha and retry once
-      setBrokerSyncStatus("⚠ GitHub couldn't save it (" + put.status + ").", "#d4706b");
+      if (put.status === 404) { fail("GitHub couldn't save to branch “" + branch + "”. If the repo is empty, upload any file to it first (e.g. broker-boston.html)."); return; }
+      if (put.status === 403) { fail("GitHub refused the save — the token needs Contents set to “Read and write” for this repo."); return; }
+      fail("GitHub couldn't save it (" + put.status + ").");
       return;
     }
-    setBrokerSyncStatus("⚠ GitHub couldn't save it — try Sync now again.", "#d4706b");
+    fail("GitHub couldn't save it — try Sync now again.");
   } catch (e) {
-    setBrokerSyncStatus("⚠ Sync failed — check your connection.", "#d4706b");
+    fail("Sync failed — check your connection.");
   } finally {
     _brokerPushRunning = false;
     if (_brokerPushAgain) { _brokerPushAgain = false; scheduleBrokerPush(); }
