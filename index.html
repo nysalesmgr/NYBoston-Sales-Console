@@ -4607,9 +4607,11 @@ function resolveQuoteApartment(query) {
       const bAptCodeMatch = bRoomRaw.match(/^(\d)\.(\d{1,2})$/);
       const bRoomKey = (bAptCodeMatch ? (bAptCodeMatch[1] + bAptCodeMatch[2].padStart(2, "0")) : bRoomRaw).toUpperCase();
       let bUnitQualified = BOSTON_UNITS.find(u => u.building === bBuilding && u.room.toUpperCase() === bRoomKey);
+      // "922 201L" / "922 201R" asks for that one private room; "922 201" (no letter) for the whole apartment.
+      const bExactRoom = !!bUnitQualified;
       if (!bUnitQualified) bUnitQualified = BOSTON_UNITS.find(u => u.building === bBuilding && u.groupId && u.room.replace(/[LR]$/i, "").toUpperCase() === bRoomKey);
       if (bUnitQualified) {
-        if (bUnitQualified.groupId) {
+        if (bUnitQualified.groupId && !bExactRoom) {
           const g = getBostonGroupsForBuilding(bBuilding).find(gr => gr.groupId === bUnitQualified.groupId);
           if (g) return { isGroup: true, building: bBuilding, groupId: g.groupId, rooms: g.rooms, category: g.category, isBoston: true };
         }
@@ -4619,9 +4621,10 @@ function resolveQuoteApartment(query) {
   }
 
   let bUnit = BOSTON_UNITS.find(u => u.room.toUpperCase() === roomKey);
+  const bExactRoomBare = !!bUnit;
   if (!bUnit) bUnit = BOSTON_UNITS.find(u => u.groupId && u.room.replace(/[LR]$/i, "").toUpperCase() === roomKey);
   if (bUnit) {
-    if (bUnit.groupId) {
+    if (bUnit.groupId && !bExactRoomBare) {
       const g = getBostonGroupsForBuilding(bUnit.building).find(gr => gr.groupId === bUnit.groupId);
       if (g) return { isGroup: true, building: bUnit.building, groupId: g.groupId, rooms: g.rooms, category: g.category, isBoston: true };
     }
@@ -4924,8 +4927,9 @@ ${optionsBlock(B)}`; };
 function buildUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink, season) {
   if (!target.isBoston) return buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPackLink, season);
   const isWhole2br = target.isBoston && target.category === "private2br" && target.isGroup;
+  const isPrivateRoom = target.isBoston && target.category === "private2br" && !target.isGroup;
   const is1br = target.isBoston && target.category === "1br" && !target.isGroup;
-  if (!isWhole2br && !is1br) return null;
+  if (!isWhole2br && !is1br && !isPrivateRoom) return null;
 
   const r3 = isWhole2br
     ? bostonEffectiveGroupFullUpfront(target.building, target.groupId)
@@ -4937,11 +4941,12 @@ function buildUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPack
   const roomDigits = roomForNumbering.replace(/\D/g, "");
   const floor = roomDigits[0] || "_";
   const unitCode = roomDigits.length > 1 ? roomDigits.slice(1).padStart(2, "0") : "__";
-  const aptNumber = `${floor}.${unitCode}`;
+  // A single private room keeps its L / R letter, e.g. "2.01L".
+  const aptNumber = `${floor}.${unitCode}` + (isPrivateRoom ? (roomForNumbering.match(/[LR]$/i) || [""])[0].toUpperCase() : "");
   const floorLabel = floor !== "_" ? ordinal(parseInt(floor)) : "___";
 
-  const title = isWhole2br ? "2 Bedroom 2 Bath Unit" : "1 Bedroom 1 Bath Unit";
-  const microwaveLine = isWhole2br ? "Microwave Oven - bake, roast, steam and air fry" : "Microwave Oven";
+  const title = isPrivateRoom ? "Private Bedroom in a 2 Bedroom 2 Bath Unit" : isWhole2br ? "2 Bedroom 2 Bath Unit" : "1 Bedroom 1 Bath Unit";
+  const microwaveLine = (isWhole2br || isPrivateRoom) ? "Microwave Oven - bake, roast, steam and air fry" : "Microwave Oven";
 
   const videoHtml = videoLink ? `<a href="${videoLink}" target="_blank" rel="noopener">HERE</a>` : "HERE (video link not added yet)";
   const videoText = videoLink ? `HERE (${videoLink})` : "HERE (video link not added yet)";
