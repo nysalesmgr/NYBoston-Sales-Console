@@ -1189,12 +1189,12 @@ function detectBookingType(moveIn, moveOut) {
 }
 
 // Boston's flat exit-cleaning/restocking fee (no summer/fall split like NY):
-// $300 for a 1BR OR a single private room within a 2BR, $600 only when the
-// WHOLE 2BR apartment is booked — unlike NY, where a private-room booking
+// $300 for a 1BR, $225 for a single private room within a 2BR, and $600 when
+// the WHOLE 2BR apartment is booked — unlike NY, where a private-room booking
 // uses the same fee as the whole apartment of that category.
 function bostonCleaningFee(target) {
   if (target.category === "1br") return 300;
-  return target.isGroup ? 600 : 300;
+  return target.isGroup ? 600 : 225;
 }
 
 function updateCleaningFee() {
@@ -1252,7 +1252,11 @@ let rateSheetStore = {};
 // already have a saved fullupfront_summer value, so it never overwrites
 // real numbers entered later — remove/replace this object once real
 // Summer 2027 selling rates are finalized.
-const SEED_FULLUPFRONT_SUMMER_2027 = {"308 East 52nd Street":{"1F":5000.0,"1R":5000.0,"2FL":3650.0,"2FR":3650.0,"2RL":3650.0,"2RR":3650.0,"3FL":3650.0,"3FR":3650.0,"3RL":3650.0,"3RR":3650.0,"4FL":3650.0,"4FR":3650.0,"4RL":3650.0,"4RR":3650.0,"5FL":3650.0,"5FR":3650.0,"5RL":3650.0,"5RR":3650.0,"6FL":3650.0,"6FR":3650.0,"6RL":3650.0,"6RR":3650.0},"111 East 39th Street":{"1F":4400.0,"1RL":3475.0,"1RR":3475.0,"2FL":3475.0,"2FR":3475.0,"2RL":3475.0,"2RR":3475.0,"3FL":3475.0,"3FR":3475.0,"3RL":3475.0,"3RR":3475.0,"4FL":3475.0,"4FR":3475.0,"4RL":3475.0,"4RR":3475.0,"5FL":3475.0,"5FR":3475.0,"5RL":3475.0,"5RR":3475.0},"115 East 37th Street":{"1F":4700.0,"2L":4700.0,"2F":4700.0,"2R":4700.0,"1R":6650.0,"3FL":3175.0,"3FR":3175.0,"3RR":3175.0,"3RL":3175.0,"4FL":3175.0,"4FR":3175.0,"4RR":3175.0,"4RL":3175.0,"5FL":3175.0,"5FR":3175.0,"5RR":3175.0,"5RL":3175.0},"138 East 37th Street":{"1F":4200.0,"1RR":3350.0,"1RL":3350.0,"2FL":3350.0,"2FR":3350.0,"2RR":3350.0,"2RL":3350.0,"3FL":3350.0,"3FR":3350.0,"3RR":3350.0,"3RL":3350.0,"4FL":3350.0,"4FR":3350.0,"4RR":3350.0,"4RL":3350.0,"5FL":3350.0,"5FR":3350.0,"5RR":3350.0,"5RL":3350.0},"143 East 36th Street":{"1F":4800.0,"2R":4800.0,"4F":4800.0,"4R":4800.0,"5F":4800.0,"1RL":3300.0,"1RR":3300.0,"2FL":3300.0,"2FR":3300.0,"5RL":3300.0,"5RR":3300.0,"3FL":3166.67,"3RL":3166.67,"3RR":3166.67},"336 East 15th Street":{"1F":3800.0,"1R":3800.0,"7R":4900.0,"2FL":3500.0,"2FR":3500.0,"2RL":3500.0,"2RR":3500.0,"3FL":3500.0,"3FR":3500.0,"3RL":3500.0,"3RR":3500.0,"4FL":3500.0,"4FR":3500.0,"4RL":3500.0,"4RR":3500.0,"5FL":3500.0,"5FR":3500.0,"5RL":3500.0,"5RR":3500.0,"6FL":3500.0,"6FR":3500.0,"6RL":3500.0,"6RR":3500.0},"35 East 7th Street":{"1C":3500.0,"1R":4700.0,"2R":4700.0,"3R":4700.0,"4R":4700.0,"1AL":3450.0,"1AR":3450.0,"1BL":3450.0,"1BR":3450.0,"1FL":3450.0,"1FR":3450.0,"1ML":3450.0,"1MR":3450.0,"2FL":3450.0,"2FR":3450.0,"2ML":3450.0,"2MR":3450.0,"3FL":3450.0,"3FR":3450.0,"3ML":3450.0,"3MR":3450.0,"4FL":3450.0,"4FR":3450.0,"4ML":3450.0,"4MR":3450.0},"85 2nd Avenue":{"3FL":3250.0,"3FR":3250.0,"3RL":3250.0,"3RR":3250.0,"4FL":3250.0,"4FR":3250.0,"4RL":3250.0,"4RR":3250.0,"5FL":3250.0,"5FR":3250.0,"5RL":3250.0,"5RR":3250.0},"308 West 18th Street":{"1A":4700.0,"2M":4700.0,"3M":4700.0,"4M":4700.0,"1F":4400.0,"1ML":3400.0,"1MR":3400.0,"1RL":3400.0,"1RR":3400.0,"2FL":3400.0,"2FR":3400.0,"2RL":3400.0,"2RR":3400.0,"3FL":3400.0,"3FR":3400.0,"3RL":3400.0,"3RR":3400.0,"4FL":3400.0,"4FR":3400.0,"4RL":3400.0,"4RR":3400.0},"152 West 15th Street":{"1F":4400.0,"4A":4200.0,"4B":4200.0,"4C":4200.0,"4D":4200.0,"1B":5800.0,"1R":5800.0,"1AL":3400.0,"1AR":3400.0,"2RL":3400.0,"2RR":3400.0,"2FL":3400.0,"2FR":3400.0,"3RL":3400.0,"3RR":3400.0,"3FR":3400.0,"3FL":3400.0},"230 Sullivan Street":{"1F":4200.0,"2R":6000.0,"1RL":3275.0,"1RR":3275.0,"2FL":3275.0,"2FR":3275.0,"3FL":3275.0,"3FR":3275.0,"3RR":3275.0,"3RL":3275.0,"4FL":3275.0,"4FR":3275.0,"4RL":3275.0,"4RR":3275.0,"5FL":3275.0,"5FR":3275.0,"5RL":3275.0,"5RR":3275.0},"176 Bleecker Street":{"2FL":3250.0,"2FR":3250.0,"2RL":3250.0,"2RR":3250.0,"3FL":3250.0,"3FR":3250.0,"3RL":3250.0,"3RR":3250.0,"4FL":3250.0,"4FR":3250.0,"4RL":3250.0,"4RR":3250.0,"5FL":3250.0,"5FR":3250.0,"5RL":3250.0,"5RR":3250.0},"133 West 3rd Street":{"R1L":4600.0,"R1R":4600.0,"R2L":4600.0,"R2R":4600.0,"R3L":4600.0,"R3R":4600.0,"2FL":3250.0,"2FR":3250.0,"2RL":3250.0,"2RR":3250.0,"3FL":3250.0,"3FR":3250.0,"3RL":3250.0,"3RR":3250.0,"4FL":3250.0,"4FR":3250.0,"4RL":3250.0,"4RR":3250.0},"81 Sullivan Street":{"1A":4200.0,"2FL":3350.0,"2FR":3350.0,"2RL":3350.0,"2RR":3350.0,"3FL":3350.0,"3FR":3350.0,"3RL":3350.0,"3RR":3350.0,"4FL":3350.0,"4FR":3350.0,"4RL":3350.0,"4RR":3350.0,"R1 L":3266.67,"R1 M":3266.67,"R1R":3266.67,"R2L":3266.67,"R2M":3266.67,"R2R":3266.67,"R3L":3266.67,"R3M":3266.67,"R3R":3266.67},"235 Sullivan Street":{"2R":4750.0,"3F":4750.0,"3R":4750.0,"4F":4750.0,"4R":4750.0,"5F":4750.0,"5R":4750.0}};
+// Summer rates were cleared except for units already sold / committed for Summer.
+// This fills a blank only (never overwrites a saved number) so those rates stay.
+// 152 W 15th "3R" = rooms 3RL + 3RR at $3,400 each ($6,800 for the apartment).
+const SEED_FULLUPFRONT_SUMMER_2027 = {"308 East 52nd Street":{"1R":5000},"152 West 15th Street":{"3RL":3400,"3RR":3400},"111 East 39th Street":{"5RL":3475,"5RR":3475}};
+const SUMMER_RATE_KEEP = {"308 East 52nd Street":["1R"],"152 West 15th Street":["3RL","3RR"],"111 East 39th Street":["5RL","5RR"]};
 
 // ── Per-room, per-season deal-status tracking (independent of rates/PIN) ──
 // mirrors localStorage "hc_room_status_v1":
@@ -2846,6 +2850,27 @@ function loadRateSheet() {
   } catch(e) { rateSheetStore = {}; /* ignore corrupt localStorage */ }
   applySeedRates();
 
+  // One-time change: every NY Summer rate (Option 3 / Full Upfront and IA) is
+  // cleared EXCEPT the units listed in SUMMER_RATE_KEEP (already sold /
+  // committed for Summer). Fall rates are untouched. Runs once per browser;
+  // rates typed in afterwards are kept.
+  try {
+    if (!localStorage.getItem("hc_mig_clear_summer_v2")) {
+      Object.keys(rateSheetStore).forEach(building => {
+        const rooms = rateSheetStore[building] && rateSheetStore[building].rooms;
+        if (!rooms) return;
+        const keep = SUMMER_RATE_KEEP[building] || [];
+        Object.keys(rooms).forEach(room => {
+          if (!rooms[room] || keep.indexOf(room) !== -1) return;
+          rooms[room].fullupfront_summer = "";
+          rooms[room].ia_summer = "";
+        });
+      });
+      localStorage.setItem("hc_rate_sheet_v3", JSON.stringify(rateSheetStore));
+      localStorage.setItem("hc_mig_clear_summer_v2", "1");
+    }
+  } catch (e) {}
+
   // Load per-room/per-apartment status BEFORE rendering the cards, since
   // buildRoomRateTableHtml/buildRateCardHtml read statusStore synchronously
   // while building each row's <select>/<tr> markup and the header summary.
@@ -3426,7 +3451,7 @@ const BOSTON_UNITS = [{"building": "922 Mass Ave", "room": "101", "category": "1
 
 // Fixed note from the source rate sheet — shown once above the Boston
 // table rather than per-row, since it's the same for every unit.
-const BOSTON_CLEANING_NOTE = "Exit Cleaning Fee & Restocking Fee: Private Room $300 · 1 Bedroom Apartment $300 · 2 Bedroom Apartment $600";
+const BOSTON_CLEANING_NOTE = "Exit Cleaning Fee & Restocking Fee: Private Room $225 · 1 Bedroom Apartment $300 · 2 Bedroom Apartment $600";
 
 let currentProperty = "ny"; // "ny" | "boston"
 
@@ -4825,7 +4850,7 @@ function buildNyUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPa
     ? (room.endsWith("L") ? "Left Bedroom" : room.endsWith("R") ? "Right Bedroom" : room.endsWith("M") ? "Middle Bedroom" : null)
     : null;
   const aptLine = bedroomSide
-    ? `- Apt ${room} - ${bedroomSide} (Located on the ${floorLabel} Floor)`
+    ? `- Apt ${room} (${bedroomSide}, Located on the ${floorLabel} Floor)`
     : `- Apt ${room} (Located on the ${floorLabel} Floor)`;
 
   // Fall rates for 2027 aren't finalized yet — show the full quote anyway
@@ -4941,8 +4966,10 @@ function buildUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPack
   const roomDigits = roomForNumbering.replace(/\D/g, "");
   const floor = roomDigits[0] || "_";
   const unitCode = roomDigits.length > 1 ? roomDigits.slice(1).padStart(2, "0") : "__";
-  // A single private room keeps its L / R letter, e.g. "2.01L".
-  const aptNumber = `${floor}.${unitCode}` + (isPrivateRoom ? (roomForNumbering.match(/[LR]$/i) || [""])[0].toUpperCase() : "");
+  const aptNumber = `${floor}.${unitCode}`;
+  // A single private room says which bedroom it is, e.g. "(Right Bedroom, Located on the 3rd Floor)".
+  const sideLetter = isPrivateRoom ? (roomForNumbering.match(/[LR]$/i) || [""])[0].toUpperCase() : "";
+  const sideLabel = sideLetter === "L" ? "Left Bedroom, " : sideLetter === "R" ? "Right Bedroom, " : "";
   const floorLabel = floor !== "_" ? ordinal(parseInt(floor)) : "___";
 
   const title = isPrivateRoom ? "Private Bedroom in a 2 Bedroom 2 Bath Unit" : isWhole2br ? "2 Bedroom 2 Bath Unit" : "1 Bedroom 1 Bath Unit";
@@ -4957,7 +4984,7 @@ function buildUnitQuoteResult(target, moveInStr, moveOutStr, videoLink, infoPack
   // 922 Mass Ave 101 is sent without the video / info pack line.
   const noLinks = !target.isGroup && target.building === "922 Mass Ave" && target.room === "101";
   const body = (video, info, bold) => { const B = bold ? (t => `<strong>${t}</strong>`) : (t => t); return `${B(title + " @ " + target.building)}
-- Apt ${aptNumber} (Located on the ${floorLabel} Floor)
+- Apt ${aptNumber} (${sideLabel}Located on the ${floorLabel} Floor)
 - Available from ${moveInStr} to ${moveOutStr} (Extensions would be subject to availability & prevailing market rates)
 ${noLinks ? "" : `- You may view the pre-recorded apartment tour video ${video} & the information pack ${info}
 `}- Please note that this building is located with nearby bar, which may result in street noise and nightlife music.
