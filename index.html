@@ -442,6 +442,17 @@
           <button type="button" class="btn-copy" id="collapseAllBtn" onclick="collapseAllRateCards()">⊖ Collapse All</button>
         </div>
 
+        <details class="broker-sync-panel" id="teamSyncPanel">
+          <summary>Team sync — shared rates &amp; availability (internal)</summary>
+          <div class="broker-sync-body">
+            <div class="internal-note" style="margin-bottom:8px;">Automatic. Changes made on any teammate's console appear on everyone's within about 10 seconds. Nothing to set up.</div>
+            <div class="broker-sync-actions">
+              <button type="button" class="btn-copy" onclick="teamSyncNow()">⟳ Sync now</button>
+              <span class="broker-sync-status" id="teamSyncStatus">Starting…</span>
+            </div>
+          </div>
+        </details>
+
         <details class="broker-sync-panel" id="brokerSyncPanel">
           <summary>Broker dashboard sync (internal)</summary>
           <div class="broker-sync-body">
@@ -1669,6 +1680,259 @@ async function pushBrokerData(manual, prop) {
     if (st.again) { st.again = false; scheduleBrokerPush(); }
   }
 }
+
+
+// ── Team sync: keeps every teammate's console on the same data ───────────
+// Same idea as the Round Up Dashboard: one shared Supabase table. Every change
+// is merged into it, and every open console checks it every 10 seconds and
+// picks up other people's changes. Nothing to set up on each teammate's side.
+// Edits to different rooms/buildings merge cleanly; if two people change the
+// very same field at the same moment, the later save wins.
+const TEAM_SB_URL = "https://gldccgiydcbcgmbpgtnh.supabase.co";
+const TEAM_SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdsZGNjZ2l5ZGNiY2dtYnBndG5oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzOTUxNzMsImV4cCI6MjA5Nzk3MTE3M30.Kfz2RPOp4S15hXvwPOfpMZPnmuIoA211a_YsmQDtSck";
+const TEAM_SB_TABLE = TEAM_SB_URL + "/rest/v1/hc_console_state";
+const TEAM_SYNC_BASE_KEY = "hc_team_sync_base_v1";
+const TEAM_SYNC_POLL_MS = 10000;
+const TEAM_SYNC_KEYS = [
+  "hc_rate_sheet_v3", "hc_rate_year_v1", "hc_room_status_v1", "hc_room_gender_v1",
+  "hc_commission_pct_v1", "hc_broker_sheet_ny_fall_v1",
+  "hc_boston_rate_sheet_v1", "hc_boston_room_status_v1", "hc_broker_sheet_boston_v1",
+];
+const TEAM_SYNC_SQL_HINT = "Setup needed: run the one-time SQL (hc_console_state table) in Supabase.";
+const _ts = { timer: null, running: false, again: false, applying: false, ver: {}, started: false, deferred: false, ready: false };
+
+function tsStatus(msg, color) {
+  const el = document.getElementById("teamSyncStatus");
+  if (el) { el.textContent = msg; el.style.color = color || ""; }
+}
+function tsNow() { return new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+function tsReadLocal() {
+  const o = {};
+  TEAM_SYNC_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v !== null) o[k] = v; });
+  return o;
+}
+function tsReadBase() {
+  try { return JSON.parse(localStorage.getItem(TEAM_SYNC_BASE_KEY) || "null"); } catch (e) { return null; }
+}
+function tsWriteBase(o) { try { localStorage.setItem(TEAM_SYNC_BASE_KEY, JSON.stringify(o)); } catch (e) {} }
+function tsApplyToLocal(data) {
+  let changed = false;
+  _ts.applying = true;
+  try {
+    TEAM_SYNC_KEYS.forEach(k => {
+      if (k in data && localStorage.getItem(k) !== data[k]) { localStorage.setItem(k, data[k]); changed = true; }
+    });
+  } finally { _ts.applying = false; }
+  return changed;
+}
+
+// ── 3-way merge of the JSON stores (different rooms edited by different people don't clash) ──
+function tsIsObj(x) { return x !== null && typeof x === "object" && !Array.isArray(x); }
+function tsSort(x) {
+  if (Array.isArray(x)) return x.map(tsSort);
+  if (tsIsObj(x)) { const o = {}; Object.keys(x).sort().forEach(k => { o[k] = tsSort(x[k]); }); return o; }
+  return x;
+}
+function tsDeepEq(a, b) { return JSON.stringify(tsSort(a)) === JSON.stringify(tsSort(b)); }
+function tsMergeVal(base, local, remote) {
+  const out = JSON.parse(JSON.stringify(remote));
+  const keys = new Set(Object.keys(base || {}).concat(Object.keys(local || {})));
+  keys.forEach(k => {
+    const b = base ? base[k] : undefined, l = local[k];
+    if (tsDeepEq(b, l)) return;
+    if (!(k in local)) { delete out[k]; return; }
+    if (tsIsObj(l) && tsIsObj(out[k])) out[k] = tsMergeVal(tsIsObj(b) ? b : {}, l, out[k]);
+    else out[k] = JSON.parse(JSON.stringify(l));
+  });
+  return out;
+}
+function tsMergeKey(baseStr, localStr, remoteStr) {
+  if (localStr === baseStr) return remoteStr === undefined ? localStr : remoteStr;
+  if (remoteStr === undefined || remoteStr === baseStr) return localStr;
+  let b, l, r;
+  try { b = baseStr == null ? {} : JSON.parse(baseStr); l = JSON.parse(localStr); r = JSON.parse(remoteStr); } catch (e) { return localStr; }
+  if (!tsIsObj(l) || !tsIsObj(r)) return localStr;
+  return JSON.stringify(tsMergeVal(tsIsObj(b) ? b : {}, l, r));
+}
+
+// ── Supabase I/O ──
+function tsH(extra) {
+  return Object.assign({ "apikey": TEAM_SB_KEY, "Authorization": "Bearer " + TEAM_SB_KEY, "Content-Type": "application/json" }, extra || {});
+}
+const tsInList = () => "(" + TEAM_SYNC_KEYS.join(",") + ")";
+// Light check: which keys exist and their versions.
+async function tsFetchVersions() {
+  const r = await fetch(TEAM_SB_TABLE + "?select=k,updated_at&k=in." + tsInList(), { headers: tsH(), cache: "no-store" });
+  if (r.status === 404 || r.status === 400) return { status: 404 };
+  if (!r.ok) return { status: r.status };
+  const ver = {}; (await r.json()).forEach(x => { ver[x.k] = x.updated_at; });
+  return { status: 200, ver };
+}
+async function tsFetchValues(keys) {
+  if (!keys.length) return { status: 200, data: {}, ver: {} };
+  const r = await fetch(TEAM_SB_TABLE + "?select=k,v,updated_at&k=in." + "(" + keys.join(",") + ")", { headers: tsH(), cache: "no-store" });
+  if (!r.ok) return { status: r.status };
+  const data = {}, ver = {};
+  (await r.json()).forEach(x => { data[x.k] = x.v; ver[x.k] = x.updated_at; });
+  return { status: 200, data, ver };
+}
+// Returns new updated_at, "conflict", or "error".
+async function tsWriteKey(k, v, oldVer) {
+  if (oldVer) {
+    const r = await fetch(TEAM_SB_TABLE + "?k=eq." + encodeURIComponent(k) + "&updated_at=eq." + encodeURIComponent(oldVer), { method: "PATCH", headers: tsH({ "Prefer": "return=representation" }), body: JSON.stringify({ v }) });
+    if (!r.ok) return "error";
+    const rows = await r.json();
+    return rows.length ? rows[0].updated_at : "conflict";
+  }
+  const r = await fetch(TEAM_SB_TABLE, { method: "POST", headers: tsH({ "Prefer": "return=representation" }), body: JSON.stringify({ k, v }) });
+  if (r.status === 409) return "conflict";
+  if (!r.ok) return "error";
+  const rows = await r.json();
+  return rows.length ? rows[0].updated_at : "error";
+}
+
+// ── Redraw the console after other people's changes arrive ──
+function teamSyncRefreshUI() {
+  const ae = document.activeElement;
+  const typing = ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName) && ae.closest && ae.closest("#ratesheetTab");
+  if (typing) { _ts.deferred = true; return; }
+  _ts.deferred = false;
+  const open = Array.from(document.querySelectorAll("#rateCardsWrap .rate-card.expanded")).map(c => c.id);
+  try { loadRateSheet(); } catch (e) {}
+  open.forEach(id => {
+    const c = document.getElementById(id);
+    if (c) { c.classList.add("expanded"); const b = c.querySelector(".rate-card-header"); if (b) b.setAttribute("aria-expanded", "true"); }
+  });
+  try {
+    updateSellingRateDisplay(); updateBaseRateDisplay(); updateInternalPanel(); updateOccupancyBadges();
+    if (typeof generateUnitQuote === "function") generateUnitQuote();
+  } catch (e) {}
+}
+
+function loadTeamSyncSettings() { tsStatus("Starting…"); }
+
+// First run in this browser: join the team's data, or seed it if nobody has yet.
+async function teamSyncInit() {
+  const vs = await tsFetchVersions();
+  if (vs.status === 404) { tsStatus("⚠ " + TEAM_SYNC_SQL_HINT, "#d4706b"); return false; }
+  if (vs.status !== 200) { tsStatus("⚠ Couldn't reach the shared data (" + vs.status + ").", "#d4706b"); return false; }
+  const have = Object.keys(vs.ver);
+  if (!tsReadBase()) {
+    if (have.length) {
+      const rv = await tsFetchValues(have);
+      if (rv.status !== 200) return false;
+      const local = tsReadLocal();
+      const differs = have.some(k => k in local && local[k] !== rv.data[k]);
+      if (differs && !confirm("Your team has shared rates and availability. This browser's saved copy will be replaced with the team's version. Continue?\n\n(Cancel keeps this browser's copy and uploads it as a change.)")) {
+        tsWriteBase(rv.data); _ts.ver = rv.ver;       // keep local edits; they'll be pushed on top
+        scheduleTeamPush(true);
+      } else {
+        tsApplyToLocal(rv.data); tsWriteBase(rv.data); _ts.ver = rv.ver;
+        teamSyncRefreshUI();
+      }
+    } else {
+      tsWriteBase({}); _ts.ver = {};                    // nobody has shared yet: this browser seeds it
+      _ts.ready = true; await teamSyncPush(true); return true;
+    }
+  }
+  _ts.ready = true;
+  return true;
+}
+
+function scheduleTeamPush(now) {
+  clearTimeout(_ts.timer);
+  tsStatus("Changes pending…");
+  _ts.timer = setTimeout(() => teamSyncPush(false), now ? 0 : 2000);
+}
+
+async function teamSyncPush(manual) {
+  if (_ts.running) { _ts.again = true; return; }
+  _ts.running = true;
+  tsStatus("Syncing…");
+  try {
+    if (!_ts.ready && !(await teamSyncInit())) return;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const base = tsReadBase() || {};
+      const local = tsReadLocal();
+      const dirtyKeys = Object.keys(local).filter(k => local[k] !== base[k]);
+      const vs = await tsFetchVersions();
+      if (vs.status !== 200) { tsStatus("⚠ Couldn't reach the shared data.", "#d4706b"); return; }
+      // read current remote values for keys that I changed or that moved on
+      const need = Object.keys(vs.ver).filter(k => dirtyKeys.indexOf(k) !== -1 || vs.ver[k] !== _ts.ver[k]);
+      const rv = await tsFetchValues(need);
+      if (rv.status !== 200) { tsStatus("⚠ Couldn't read the shared data.", "#d4706b"); return; }
+      const newBase = Object.assign({}, base), newVer = Object.assign({}, _ts.ver);
+      let conflict = false, failed = false;
+      for (const k of need) { newBase[k] = rv.data[k]; newVer[k] = rv.ver[k]; }
+      const toApply = {};
+      for (const k of need) if (dirtyKeys.indexOf(k) === -1) toApply[k] = rv.data[k];
+      for (const k of dirtyKeys) {
+        const merged = tsMergeKey(base[k], local[k], rv.data[k]);
+        if (rv.data[k] === merged) { newBase[k] = merged; if (merged !== local[k]) toApply[k] = merged; continue; }
+        const res = await tsWriteKey(k, merged, vs.ver[k]);
+        if (res === "conflict") { conflict = true; break; }
+        if (res === "error") { failed = true; break; }
+        newBase[k] = merged; newVer[k] = res; if (merged !== local[k]) toApply[k] = merged;
+      }
+      if (failed) { tsStatus("⚠ Couldn't save to the shared data.", "#d4706b"); return; }
+      if (conflict) { tsWriteBase(newBase); _ts.ver = newVer; continue; }
+      tsWriteBase(newBase); _ts.ver = newVer;
+      if (tsApplyToLocal(toApply)) teamSyncRefreshUI();
+      tsStatus("✓ Synced " + tsNow(), "#7aab96");
+      return;
+    }
+    tsStatus("⚠ Busy — click Sync now to try again.", "#d4706b");
+  } catch (e) {
+    tsStatus("⚠ Sync failed — check your connection.", "#d4706b");
+  } finally {
+    _ts.running = false;
+    if (_ts.again) { _ts.again = false; scheduleTeamPush(); }
+  }
+}
+
+// Checks for changes made by teammates (cheap: only a small version list unless something changed).
+async function teamSyncPull() {
+  if (_ts.running || _ts.applying) return;
+  try {
+    if (!_ts.ready) { _ts.running = true; let ok; try { ok = await teamSyncInit(); } finally { _ts.running = false; } if (!ok) return; }
+    const vs = await tsFetchVersions();
+    if (vs.status !== 200) return;
+    const changedKeys = Object.keys(vs.ver).filter(k => vs.ver[k] !== _ts.ver[k]);
+    const base = tsReadBase() || {}, local = tsReadLocal();
+    if (TEAM_SYNC_KEYS.some(k => local[k] !== base[k])) { teamSyncPush(false); return; }
+    if (!changedKeys.length) return;
+    const rv = await tsFetchValues(changedKeys);
+    if (rv.status !== 200) return;
+    const nb = Object.assign({}, base, rv.data);
+    _ts.ver = Object.assign({}, _ts.ver, rv.ver);
+    const changed = tsApplyToLocal(rv.data);
+    tsWriteBase(nb);
+    tsStatus("✓ Updated from your team " + tsNow(), "#7aab96");
+    if (changed) teamSyncRefreshUI();
+  } catch (e) { /* offline: try again next time */ }
+}
+
+function teamSyncNow() { teamSyncPush(true); }
+
+function teamSyncStart() {
+  if (_ts.started) return;
+  _ts.started = true;
+  teamSyncPull();
+  setInterval(() => { if (!document.hidden) teamSyncPull(); }, TEAM_SYNC_POLL_MS);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) teamSyncPull(); });
+  document.addEventListener("focusout", () => { if (_ts.deferred) setTimeout(teamSyncRefreshUI, 300); });
+}
+
+// Any change to a shared value (however it's saved) schedules a team push.
+(function () {
+  try {
+    const orig = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (k, v) {
+      orig.apply(this, arguments);
+      try { if (this === window.localStorage && !_ts.applying && TEAM_SYNC_KEYS.indexOf(k) !== -1 && _ts.started) scheduleTeamPush(); } catch (e) {}
+    };
+  } catch (e) {}
+})();
 
 
 // Counts INDIVIDUAL ROOMS (not distinct deals/groups) by status, split by
@@ -5121,11 +5385,13 @@ window.addEventListener("DOMContentLoaded", function() {
   populateBuildingDropdowns();
   loadClientFilterPanelState();
   loadBrokerSyncSettings();
+  loadTeamSyncSettings();
   loadRateSheet();
   updateSellingRateDisplay();
   updateBaseRateDisplay();
   updateInternalPanel();
   updateOccupancyBadges();
+  teamSyncStart();
 });
 </script>
 </body>
