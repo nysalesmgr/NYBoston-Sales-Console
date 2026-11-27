@@ -321,6 +321,8 @@
 #dormTab .feat-text > strong { display: block; font-size: 13px; color: var(--fg); }
 #dormTab .feat-text > span { display: block; font-size: 12px; color: var(--fg-2); line-height: 1.5; margin-top: 2px; }
 @media (max-width: 900px) { #dormTab .dv-root div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; } }
+  .sh-page { grid-template-columns: minmax(300px, 420px) 1fr; }
+  @media (max-width: 860px) { .sh-page { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -332,6 +334,7 @@
     <button class="tab-btn" id="tabBtnQuote" onclick="switchTab('quote')">Apartment Details</button>
     <button class="tab-btn" id="tabBtnRecap" onclick="switchTab('recap')">Recap Generator</button>
     <button class="tab-btn" id="tabBtnDorm" onclick="switchTab('dorm')">Dorm vs Heritage NY</button>
+    <button class="tab-btn" id="tabBtnShorten" onclick="switchTab('shorten')">Dynamic Pricing</button>
   </div>
   <div class="header-stats">
     <div class="occ-badge">
@@ -523,6 +526,28 @@
       </div>
     </div>
   </div>
+</div>
+
+<div id="shortenTab" class="tab-panel">
+<div class="page sh-page">
+  <div class="panel">
+    <div class="panel-head"><div class="panel-icon">&#9201;</div><h2>Dynamic pricing</h2></div>
+    <div class="panel-body">
+      <div class="internal-note" style="margin:0 0 12px;">Keeps total revenue the same when a student wants to leave earlier: works out the new monthly rate for the shorter stay.</div>
+      <div class="form-group"><label for="shRate">Original monthly rate ($)</label><input type="number" id="shRate" step="any" placeholder="e.g. 2400" oninput="calcShorten()"></div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0"><label for="shIn">Move-in date</label><input type="text" id="shIn" placeholder="e.g. 1 Sep 2027" oninput="calcShorten()"></div>
+        <div class="form-group" style="margin:0"><label for="shOut">Original move-out date</label><input type="text" id="shOut" placeholder="e.g. 31 May 2028" oninput="calcShorten()"></div>
+      </div>
+      <div class="form-group" style="margin-top:14px"><label for="shOut2">Requested move-out date</label><input type="text" id="shOut2" placeholder="e.g. 30 Apr 2028" oninput="calcShorten()"></div>
+      <div class="internal-note">Months are counted by the calendar (1 Sep to 31 May = 9 months; part-months count by days/30). The new rate is rounded up to the next $100 so revenue is never lower than the original.</div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="output-toolbar"><div class="output-meta"><strong>Result</strong></div><button class="btn-copy" type="button" onclick="copyShorten(this)">&#9112; Copy</button></div>
+    <div class="output-text" id="shResult" style="min-height:260px">Fill in the rate and dates on the left.</div>
+  </div>
+</div>
 </div>
 
 <div id="dormTab" class="tab-panel">
@@ -3187,10 +3212,70 @@ function switchTab(name) {
   document.getElementById("ratesheetTab").className = "tab-panel" + (name === "ratesheet" ? " active" : "");
   document.getElementById("quoteTab").className = "tab-panel" + (name === "quote" ? " active" : "");
   document.getElementById("dormTab").className = "tab-panel" + (name === "dorm" ? " active" : "");
+  document.getElementById("shortenTab").className = "tab-panel" + (name === "shorten" ? " active" : "");
+  document.getElementById("tabBtnShorten").className = "tab-btn" + (name === "shorten" ? " active" : "");
   document.getElementById("tabBtnDorm").className = "tab-btn" + (name === "dorm" ? " active" : "");
   document.getElementById("tabBtnRecap").className = "tab-btn" + (name === "recap" ? " active" : "");
   document.getElementById("tabBtnRateSheet").className = "tab-btn" + (name === "ratesheet" ? " active" : "");
   document.getElementById("tabBtnQuote").className = "tab-btn" + (name === "quote" ? " active" : "");
+}
+
+
+// ── EARLY MOVE-OUT CALCULATOR (revenue-neutral new monthly rate) ──
+let _shText = "";
+function shMonthsBetween(a, b) {            // a = move-in, b = move-out (inclusive of that day)
+  const end = new Date(b.getFullYear(), b.getMonth(), b.getDate() + 1);
+  let m = (end.getFullYear() - a.getFullYear()) * 12 + (end.getMonth() - a.getMonth());
+  let anchor = new Date(a.getFullYear(), a.getMonth() + m, a.getDate());
+  if (anchor > end) { m -= 1; anchor = new Date(a.getFullYear(), a.getMonth() + m, a.getDate()); }
+  const days = Math.round((end - anchor) / 86400000);
+  return m + days / 30;
+}
+function shMoveOutMinus(out, cut) {          // move-out date moved earlier by `cut` months
+  const whole = Math.floor(cut), extraDays = Math.round((cut - whole) * 30);
+  const end = new Date(out.getFullYear(), out.getMonth(), out.getDate() + 1);
+  const t = new Date(end.getFullYear(), end.getMonth() - whole, end.getDate() - extraDays);
+  return new Date(t.getFullYear(), t.getMonth(), t.getDate() - 1);
+}
+function shFmtDate(d) { return d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }); }
+function shMoney(n) { return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
+function calcShorten() {
+  const out = document.getElementById("shResult");
+  const rate = parseFloat(document.getElementById("shRate").value);
+  const din = parseDate(document.getElementById("shIn").value);
+  const dout = parseDate(document.getElementById("shOut").value);
+  _shText = "";
+  if (!(rate > 0) || !din || !dout) { out.textContent = "Fill in the rate and dates on the left."; return; }
+  if (dout <= din) { out.textContent = "Move-out must be after move-in."; return; }
+  const origM = shMonthsBetween(din, dout);
+  const total = rate * origM;
+  const newOut = parseDate(document.getElementById("shOut2").value);
+  if (!newOut) { out.textContent = "Enter the requested move-out date."; return; }
+  if (newOut <= din) { out.textContent = "The requested move-out must be after move-in."; return; }
+  if (newOut >= dout) { out.textContent = "The requested move-out must be earlier than the original."; return; }
+  const newM = shMonthsBetween(din, newOut);
+  const exact = total / newM;
+  const newRate = Math.ceil(exact / 100 - 1e-9) * 100;
+  const newTotal = newRate * newM;
+  const diff = newRate - rate, pct = diff / rate * 100;
+  const f = n => Math.round(n * 100) / 100;
+  const lines = [
+    "ORIGINAL STAY",
+    shFmtDate(din) + " to " + shFmtDate(dout) + "  (" + f(origM) + " months)",
+    "Monthly rate " + shMoney(rate) + "  ->  Total revenue " + shMoney(f(total)),
+    "",
+    "SHORTENED STAY",
+    shFmtDate(din) + " to " + shFmtDate(newOut) + "  (" + f(newM) + " months)",
+    "",
+    "NEW MONTHLY RATE: " + shMoney(newRate) + "   (+" + shMoney(f(diff)) + " / month, +" + f(pct) + "%)",
+    "New total revenue: " + shMoney(f(newTotal)) + (newTotal + 0.005 >= total ? "   (not lower than the original " + shMoney(f(total)) + ")" : "   (LOWER than the original)"),
+  ];
+  _shText = lines.join("\n");
+  out.textContent = _shText;
+}
+function copyShorten(btn) {
+  if (!_shText) return;
+  navigator.clipboard.writeText(_shText).then(() => { btn.classList.add("copied"); setTimeout(() => btn.classList.remove("copied"), 1200); });
 }
 
 // ── BASE / SELLING RATE LOOKUP (from Rate Sheet tab) ──
@@ -3503,20 +3588,33 @@ function buildFull(moveIn, moveOut, r1, r2, r3, bankFee, dep, clean, chosenOpt, 
   let bd = "";
 
   if (chosenOpt===1) {
-    const {lines} = buildBreakdown(moveIn,moveOut,r1);
-    const sl = moveIn.getDate()!==1 ? lines.slice(0,2) : lines.slice(0,1);
+    const {lines,total:fullTotal} = buildBreakdown(moveIn,moveOut,r1);
+    const nFirst = moveIn.getDate()!==1 ? 2 : 1;
+    const sl = lines.slice(0,nFirst);
+    const rest = lines.slice(nFirst);
     const sub = Math.round(sl.reduce((a,l)=>a+l.amount,0)*100)/100;
+    const restTotal = Math.round(rest.reduce((a,l)=>a+l.amount,0)*100)/100;
     const due = Math.round((sub+bankFee+dep)*100)/100;
+    const restBlock = rest.length ? `
+
+Subsequent monthly payments (automatically deducted from one authorised bank account on the 1st of each month):
+${rest.map(l=>"• "+l.label+" : "+money(l.amount)).join("\n")}
+Total of subsequent monthly payments: ${money(restTotal)}
+
+Total rental for the full stay: ${money(fullTotal)}` : `
+
+Total rental for the full stay: ${money(fullTotal)}`;
     bd = `\n─────────────────────────────────────────
 OPTION 1 — Pricing breakdown
 
-Under this rate of ${money(r1)} per month, you'll have to pay the prorated rental of 1-month rent + security deposit upon signing. Subsequently, rent payment will be automatically deducted from one authorised bank account on the 1st of each month. However, if the 1st of the month falls on a weekend or bank holiday, the deduction will occur on the last business day prior to that date.
+Under this rate of ${money(r1)} per month, you'll have to pay the prorated rental of 1-month rent + security deposit upon signing. Subsequently, rent payment will be automatically deducted from one authorised bank account on the 1st of each month.
 
+Due upon signing the Licence Agreement:
 ${sl.map(l=>"• "+l.label+" : "+money(l.amount)).join("\n")}
 • Bank fee: ${money(bankFee)}
 • Security deposit: ${money(dep)} (Assuming that there are no missing items and/or damages in the apartment, we will refund the deposit at the end of your stay, after deducting a mandatory exit cleaning fee of ${money(clean)})
 
-Total Amount Due: ${money(due)} (Due upon signing the Licence Agreement)`;
+Total Amount Due: ${money(due)} (Due upon signing the Licence Agreement)${restBlock}`;
   }
 
   if (chosenOpt===2) {
